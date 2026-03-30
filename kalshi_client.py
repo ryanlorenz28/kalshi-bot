@@ -28,8 +28,10 @@ class KalshiClient:
 
         try:
             private_key_pem = self.config.KALSHI_API_PRIVATE_KEY
-            if not private_key_pem.startswith("-----"):
-                private_key_pem = f"-----BEGIN RSA PRIVATE KEY-----\n{private_key_pem}\n-----END RSA PRIVATE KEY-----"
+           private_key_pem = self.config.KALSHI_API_PRIVATE_KEY
+private_key_pem = private_key_pem.replace("\\n", "\n")
+if not private_key_pem.startswith("-----"):
+    private_key_pem = f"-----BEGIN RSA PRIVATE KEY-----\n{private_key_pem}\n-----END RSA PRIVATE KEY-----"
 
             private_key = serialization.load_pem_private_key(
                 private_key_pem.encode(), password=None
