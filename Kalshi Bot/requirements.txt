@@ -1,5 +1,0 @@
-anthropic
-requests
-python-dotenv
-schedule
-colorama
