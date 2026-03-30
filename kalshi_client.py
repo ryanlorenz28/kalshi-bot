@@ -6,7 +6,19 @@ from datetime import datetime, timezone
 
 
 class KalshiClient:
-    BASE_URL = "https://trading-api.kalshi.com/trade-api/v2"
+BASE_URL = "https://api.elections.kalshi.com/trade-api/v2"
+```
+
+Also update the `get_markets` URL in `place_order` and anywhere else that references the old URL.
+
+Actually the easiest fix — just find and replace every instance of:
+```
+trading-api.kalshi.com/trade-api/v2
+```
+
+With:
+```
+api.elections.kalshi.com/trade-api/v2
 
     def __init__(self, config):
         self.config = config
