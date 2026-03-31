@@ -46,8 +46,17 @@ def log_trade(trade: dict, config):
 
 def run_cycle(client, analyzer, logger, config, state):
     logger.info("=" * 55)
-    logger.info("🔄 Starting new trading cycle...")
-    logger.info("📡 Scanning Kalshi for active markets...")
+    
+    # Show open positions at the start of every cycle
+    if state["open_positions"]:
+        logger.info(f"\n📋 CURRENT OPEN POSITIONS ({len(state['open_positions'])}):")
+        for pos in state["open_positions"].values():
+            logger.info(f"  • {pos['question'][:50]}...")
+            logger.info(f"    Bet: {pos['outcome']} @ ${pos['amount_usd']:.2f} | Confidence: {pos['ai_confidence']:.0%} | Edge: {pos['edge']:+.0%}")
+    else:
+        logger.info("📋 No open positions")
+
+    logger.info("Scanning Kalshi for active markets...")
 
     markets = client.get_markets(limit=config.MARKETS_TO_SCAN)
 
