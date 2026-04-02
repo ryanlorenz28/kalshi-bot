@@ -47,51 +47,46 @@ class KalshiClient:
             resp.raise_for_status()
             markets = resp.json().get("markets", [])
             if markets:
-    print(f"Sample market keys: {list(markets[0].keys())}")
-    print(f"Sample market prices: yes_ask={markets[0].get('yes_ask')} yes_bid={markets[0].get('yes_bid')} last_price={markets[0].get('last_price')}")
+                first = markets[0]
+                print(f"DEBUG keys: {list(first.keys())}")
+                print(f"DEBUG prices: yes_ask={first.get('yes_ask')} yes_bid={first.get('yes_bid')} last_price={first.get('last_price')} yes_price={first.get('yes_price')}")
             result = [self._normalize(m) for m in markets if m]
             return [m for m in result if m][:limit]
         except Exception as e:
             print(f"Error fetching Kalshi markets: {e}")
             return self._demo_markets()[:limit]
 
-def _normalize(self, raw):
-    try:
-        # Try multiple price fields Kalshi uses
-        yes_price = (
-            raw.get("yes_ask") or
-            raw.get("yes_bid") or
-            raw.get("last_price") or
-            raw.get("yes_price") or
-            0.5
-        )
-        yes_price = float(yes_price)
-        
-        # Kalshi sometimes returns prices as cents (0-100) instead of decimals (0-1)
-        if yes_price > 1:
-            yes_price = yes_price / 100
-
-        # Sanity check
-        if yes_price <= 0 or yes_price >= 1:
-            yes_price = 0.5
-
-        return {
-            "id": raw.get("ticker", "unknown"),
-            "question": raw.get("title", "Unknown market"),
-            "description": raw.get("rules_primary", ""),
-            "market_type": "binary",
-            "outcomes": [
-                {"name": "Yes", "price": yes_price},
-                {"name": "No", "price": round(1 - yes_price, 4)},
-            ],
-            "volume": float(raw.get("volume", 0) or 0),
-            "liquidity": float(raw.get("open_interest", 0) or 0),
-            "days_to_resolve": self._days_until(raw.get("close_time", "")),
-            "category": raw.get("category", "General"),
-            "url": f"https://kalshi.com/markets/{raw.get('ticker', '')}",
-        }
-    except Exception:
-        return None
+    def _normalize(self, raw):
+        try:
+            yes_price = (
+                raw.get("yes_ask") or
+                raw.get("yes_bid") or
+                raw.get("last_price") or
+                raw.get("yes_price") or
+                0.5
+            )
+            yes_price = float(yes_price)
+            if yes_price > 1:
+                yes_price = yes_price / 100
+            if yes_price <= 0 or yes_price >= 1:
+                yes_price = 0.5
+            return {
+                "id": raw.get("ticker", "unknown"),
+                "question": raw.get("title", "Unknown market"),
+                "description": raw.get("rules_primary", ""),
+                "market_type": "binary",
+                "outcomes": [
+                    {"name": "Yes", "price": yes_price},
+                    {"name": "No", "price": round(1 - yes_price, 4)},
+                ],
+                "volume": float(raw.get("volume", 0) or 0),
+                "liquidity": float(raw.get("open_interest", 0) or 0),
+                "days_to_resolve": self._days_until(raw.get("close_time", "")),
+                "category": raw.get("category", "General"),
+                "url": f"https://kalshi.com/markets/{raw.get('ticker', '')}",
+            }
+        except Exception:
+            return None
 
     def place_order(self, ticker, side, amount_usd, dry_run=True):
         if dry_run:
