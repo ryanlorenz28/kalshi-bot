@@ -8,6 +8,19 @@ from datetime import datetime, timezone
 class KalshiClient:
     BASE_URL = "https://api.elections.kalshi.com/trade-api/v2"
 
+    # Series with real liquidity on Kalshi
+    SERIES = [
+        "KXPRESNOMD",   # Presidential nomination
+        "KXPRES",       # Presidential election
+        "KXSENATE",     # Senate elections
+        "KXHOUSE",      # House elections
+        "KXGOV",        # Governor elections
+        "KXBTC",        # Bitcoin price
+        "KXETH",        # Ethereum price
+        "KXINX",        # S&P 500
+        "KXNDAQ",       # Nasdaq
+    ]
+
     def __init__(self, config):
         self.config = config
         self.session = requests.Session()
@@ -36,103 +49,17 @@ class KalshiClient:
             return {}
 
     def get_markets(self, limit=10):
-        path = "/markets"
-        try:
-            resp = self.session.get(
-                f"{self.BASE_URL}{path}",
-                headers=self._sign_request("GET", path),
-                params={"status": "open", "limit": limit * 3},
-                timeout=15,
-            )
-            resp.raise_for_status()
-            markets = resp.json().get("markets", [])
-            result = [self._normalize(m) for m in markets if m]
-            result = [m for m in result if m]
-            print(f"Found {len(result)} markets after filtering")
-            return result[:limit]
-        except Exception as e:
-            print(f"Error fetching Kalshi markets: {e}")
-            return self._demo_markets()[:limit]
+        all_markets = []
 
-    def _normalize(self, raw):
-        try:
-            yes_price = (
-                raw.get("yes_ask_dollars") or
-                raw.get("yes_bid_dollars") or
-                raw.get("last_price_dollars") or
-                raw.get("previous_yes_ask_dollars") or
-                0.5
-            )
-            yes_price = float(yes_price)
-            if yes_price > 1:
-                yes_price = yes_price / 100
-            if yes_price <= 0 or yes_price >= 1:
-                yes_price = 0.5
-            return {
-                "id": raw.get("ticker", "unknown"),
-                "question": raw.get("title", "Unknown market"),
-                "description": raw.get("rules_primary", ""),
-                "market_type": "binary",
-                "outcomes": [
-                    {"name": "Yes", "price": yes_price},
-                    {"name": "No", "price": round(1 - yes_price, 4)},
-                ],
-                "volume": float(raw.get("volume_fp", 0) or 0),
-                "liquidity": float(raw.get("liquidity_dollars", 0) or 0),
-                "days_to_resolve": self._days_until(raw.get("close_time", "")),
-                "category": raw.get("event_ticker", "General"),
-                "url": f"https://kalshi.com/markets/{raw.get('ticker', '')}",
-            }
-        except Exception:
-            return None
-
-    def place_order(self, ticker, side, amount_usd, dry_run=True):
-        if dry_run:
-            print(f"[PAPER] Would bet ${amount_usd} on {side.upper()} for {ticker}")
-            return {"status": "paper", "ticker": ticker, "side": side, "amount": amount_usd}
-        path = "/portfolio/orders"
-        try:
-            resp = self.session.post(
-                f"{self.BASE_URL}{path}",
-                headers=self._sign_request("POST", path),
-                json={"ticker": ticker, "side": side, "type": "market", "count": int(amount_usd)},
-                timeout=15,
-            )
-            resp.raise_for_status()
-            return resp.json()
-        except Exception as e:
-            print(f"Error placing order: {e}")
-            return None
-
-    def _days_until(self, date_str):
-        if not date_str:
-            return 999
-        try:
-            end = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
-            return max(0, (end - datetime.now(timezone.utc)).days)
-        except Exception:
-            return 999
-
-    def _demo_markets(self):
-        return [
-            {
-                "id": "DEMO-001",
-                "question": "Will the S&P 500 close above 5000 today?",
-                "description": "Resolves YES if S&P 500 closes above 5000.",
-                "market_type": "binary",
-                "outcomes": [{"name": "Yes", "price": 0.62}, {"name": "No", "price": 0.38}],
-                "volume": 50000, "liquidity": 25000,
-                "days_to_resolve": 1, "category": "Financials",
-                "url": "https://kalshi.com/demo",
-            },
-            {
-                "id": "DEMO-002",
-                "question": "Will Bitcoin be above $80,000 at end of day?",
-                "description": "Resolves YES if BTC/USD is above 80000.",
-                "market_type": "binary",
-                "outcomes": [{"name": "Yes", "price": 0.44}, {"name": "No", "price": 0.56}],
-                "volume": 80000, "liquidity": 40000,
-                "days_to_resolve": 1, "category": "Crypto",
-                "url": "https://kalshi.com/demo",
-            },
-        ]
+        for series in self.SERIES:
+            path = f"/series/{series}/markets"
+            try:
+                resp = self.session.get(
+                    f"{self.BASE_URL}{path}",
+                    headers=self._sign_request("GET", path),
+                    params={"status": "open", "limit": 5},
+                    timeout=15,
+                )
+                if resp.status_code != 200:
+                    continue
+                markets = resp.json().get("markets",
