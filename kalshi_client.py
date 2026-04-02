@@ -46,10 +46,6 @@ class KalshiClient:
             )
             resp.raise_for_status()
             markets = resp.json().get("markets", [])
-            if markets:
-                first = markets[0]
-                print(f"DEBUG keys: {list(first.keys())}")
-                print(f"DEBUG full market: {first}")
             result = [self._normalize(m) for m in markets if m]
             return [m for m in result if m][:limit]
         except Exception as e:
@@ -59,10 +55,10 @@ class KalshiClient:
     def _normalize(self, raw):
         try:
             yes_price = (
-                raw.get("yes_ask") or
-                raw.get("yes_bid") or
-                raw.get("last_price") or
-                raw.get("yes_price") or
+                raw.get("yes_ask_dollars") or
+                raw.get("yes_bid_dollars") or
+                raw.get("last_price_dollars") or
+                raw.get("previous_yes_ask_dollars") or
                 0.5
             )
             yes_price = float(yes_price)
@@ -79,10 +75,10 @@ class KalshiClient:
                     {"name": "Yes", "price": yes_price},
                     {"name": "No", "price": round(1 - yes_price, 4)},
                 ],
-                "volume": float(raw.get("volume", 0) or 0),
-                "liquidity": float(raw.get("open_interest", 0) or 0),
+                "volume": float(raw.get("volume_fp", 0) or 0),
+                "liquidity": float(raw.get("liquidity_dollars", 0) or 0),
                 "days_to_resolve": self._days_until(raw.get("close_time", "")),
-                "category": raw.get("category", "General"),
+                "category": raw.get("event_ticker", "General"),
                 "url": f"https://kalshi.com/markets/{raw.get('ticker', '')}",
             }
         except Exception:
