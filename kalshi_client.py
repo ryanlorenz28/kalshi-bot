@@ -49,7 +49,7 @@ class KalshiClient:
             if markets:
                 first = markets[0]
                 print(f"DEBUG keys: {list(first.keys())}")
-                print(f"DEBUG prices: yes_ask={first.get('yes_ask')} yes_bid={first.get('yes_bid')} last_price={first.get('last_price')} yes_price={first.get('yes_price')}")
+                print(f"DEBUG full market: {first}")
             result = [self._normalize(m) for m in markets if m]
             return [m for m in result if m][:limit]
         except Exception as e:
