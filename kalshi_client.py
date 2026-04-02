@@ -66,6 +66,8 @@ class KalshiClient:
                 yes_price = yes_price / 100
             if yes_price <= 0 or yes_price >= 1:
                 yes_price = 0.5
+            if raw.get("liquidity_dollars", "0.0000") == "0.0000" and raw.get("volume_fp", "0.00") == "0.00":
+                return None
             return {
                 "id": raw.get("ticker", "unknown"),
                 "question": raw.get("title", "Unknown market"),
