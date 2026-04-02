@@ -2,4 +2,6 @@ anthropic
 requests
 python-dotenv
 schedule
-colorama
+coloramacryptography 
+cryptography 
+cryptography 
