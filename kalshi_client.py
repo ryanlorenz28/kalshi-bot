@@ -110,23 +110,30 @@ class KalshiClient:
 
     def _normalize(self, raw):
         try:
-            title = raw.get("title", "Unknown market")
+            # Try to build the most descriptive title possible
+            title = (
+                raw.get("title") or
+                raw.get("subtitle") or
+                raw.get("yes_sub_title") or
+                ""
+            ).strip()
 
-            # Only skip the obviously garbled multi-outcome formats
-            # Pattern 1: "yes PlayerA, yes PlayerB, yes PlayerC..."
+            # If subtitle adds useful info, append it
+            subtitle = (raw.get("subtitle") or raw.get("yes_sub_title") or "").strip()
+            if subtitle and subtitle not in title:
+                title = title + " — " + subtitle
+
+            # Skip multi-outcome markets
             if title.lower().startswith("yes ") and "," in title:
                 return None
-            # Pattern 2: "no Over X, yes Over Y..."
             if title.lower().startswith("no ") and "," in title:
                 return None
-            # Pattern 3: More than 3 commas = definitely a list
             if title.count(",") >= 3:
                 return None
-            # Skip very short titles
             if len(title) < 8:
                 return None
 
-            # Get yes price — try multiple fields Kalshi uses
+            # Get yes price
             yes_price = (
                 raw.get("yes_ask_dollars") or
                 raw.get("yes_bid_dollars") or
@@ -135,14 +142,15 @@ class KalshiClient:
                 "0.5"
             )
             yes_price = float(yes_price)
-
-            # Kalshi sometimes returns cents (e.g. 62 instead of 0.62)
             if yes_price > 1:
                 yes_price = yes_price / 100
-
-            # Clamp to valid range
             if yes_price <= 0 or yes_price >= 1:
                 yes_price = 0.5
+
+            # Skip near-certain and near-impossible markets early
+            # (saves Claude API calls on obvious skips)
+            if yes_price < 0.04 or yes_price > 0.96:
+                return None
 
             return {
                 "id":              raw.get("ticker", "unknown"),
