@@ -45,30 +45,45 @@ class KalshiClient:
             print("Error fetching markets: " + str(e))
             return self._demo_markets()[:limit]
 
-    def _normalize(self, raw):
-        try:
-            yes_price = raw.get("yes_ask_dollars") or raw.get("yes_bid_dollars") or raw.get("last_price_dollars") or "0.5"
-            yes_price = float(yes_price)
-            if yes_price > 1:
-                yes_price = yes_price / 100
-            if yes_price <= 0 or yes_price >= 1:
-                yes_price = 0.5
-            ticker = raw.get("ticker", "unknown")
-            kalshi_url = "https://kalshi.com/markets/" + ticker
-            return {
-                "id": ticker,
-                "question": raw.get("title", "Unknown"),
-                "description": "",
-                "market_type": "binary",
-                "outcomes": [{"name": "Yes", "price": yes_price}, {"name": "No", "price": round(1 - yes_price, 4)}],
-                "volume": float(raw.get("volume_fp", 0) or 0),
-                "liquidity": float(raw.get("liquidity_dollars", 0) or 0),
-                "days_to_resolve": self._days_until(raw.get("close_time", "")),
-                "category": raw.get("event_ticker", "General"),
-                "url": kalshi_url
-            }
-        except Exception:
+def _normalize(self, raw):
+    try:
+        title = raw.get("title", "Unknown market")
+
+        # Skip multi-outcome markets — they show as comma-separated lists
+        if title.count(",") >= 2 or title.lower().startswith("yes "):
             return None
+
+        # Skip markets with very short or unclear titles
+        if len(title) < 10:
+            return None
+
+        yes_price = (raw.get("yes_ask_dollars") or
+                     raw.get("yes_bid_dollars") or
+                     raw.get("last_price_dollars") or
+                     raw.get("previous_yes_ask_dollars") or "0.5")
+        yes_price = float(yes_price)
+        if yes_price > 1:
+            yes_price = yes_price / 100
+        if yes_price <= 0 or yes_price >= 1:
+            yes_price = 0.5
+
+        return {
+            "id":              raw.get("ticker", "unknown"),
+            "question":        title,
+            "description":     raw.get("rules_primary", ""),
+            "market_type":     "binary",
+            "outcomes": [
+                {"name": "Yes", "price": yes_price},
+                {"name": "No",  "price": round(1 - yes_price, 4)},
+            ],
+            "volume":          float(raw.get("volume_fp", 0) or 0),
+            "liquidity":       float(raw.get("liquidity_dollars", 0) or 0),
+            "days_to_resolve": self._days_until(raw.get("close_time", "")),
+            "category":        raw.get("event_ticker", "General"),
+            "url":             "https://kalshi.com/markets/" + raw.get("ticker", ""),
+        }
+    except Exception:
+        return None
 
     def place_order(self, ticker, side, amount_usd, dry_run=True):
         if dry_run:
