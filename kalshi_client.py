@@ -36,29 +36,77 @@ class KalshiClient:
             return {}
 
     def get_markets(self, limit=10):
-        path = "/markets"
-        try:
-            resp = self.session.get(
-                self.BASE_URL + path,
-                headers=self._sign_request("GET", path),
-                params={"status": "open", "limit": limit * 8},
-                timeout=15,
-            )
-            resp.raise_for_status()
-            raw_markets = resp.json().get("markets", [])
+        """
+        Fetch markets from specific Kalshi series that have clean binary questions.
+        Sports props come as garbled multi-outcome lists so we skip those series.
+        """
+        # These series reliably return clean binary Yes/No markets on Kalshi
+        good_series = [
+            "KXBTCD",      # Bitcoin daily
+            "KXETHD",      # Ethereum daily
+            "KXSPX",       # S&P 500
+            "KXNASD",      # Nasdaq
+            "KXINFL",      # Inflation / CPI
+            "KXFED",       # Fed rate decisions
+            "KXUNemp",     # Unemployment
+            "KXGDP",       # GDP
+            "KXREC",       # Recession
+            "KXPRES",      # Presidential approval
+            "KXCONG",      # Congress
+            "KXHOUSE",     # Housing
+            "KXOIL",       # Oil prices
+            "KXGOLD",      # Gold
+        ]
 
-            # Debug: show first 5 raw titles so we can see what Kalshi returns
-            print("DEBUG — first 5 raw titles from Kalshi:")
-            for m in raw_markets[:5]:
-                print("  RAW: " + str(m.get("title", "NO TITLE")))
+        all_markets = []
 
-            result = [self._normalize(m) for m in raw_markets if m]
-            result = [m for m in result if m]
-            print("Found " + str(len(result)) + " markets after filtering")
-            return result[:limit]
-        except Exception as e:
-            print("Error fetching markets: " + str(e))
+        # First try fetching by series
+        for series in good_series:
+            if len(all_markets) >= limit * 3:
+                break
+            try:
+                path = "/markets"
+                resp = self.session.get(
+                    self.BASE_URL + path,
+                    headers=self._sign_request("GET", path),
+                    params={
+                        "status":        "open",
+                        "series_ticker": series,
+                        "limit":         10,
+                    },
+                    timeout=10,
+                )
+                if resp.status_code == 200:
+                    markets = resp.json().get("markets", [])
+                    all_markets.extend(markets)
+            except Exception:
+                continue
+
+        # If series fetch got nothing, fall back to general fetch with heavy filtering
+        if not all_markets:
+            try:
+                path = "/markets"
+                resp = self.session.get(
+                    self.BASE_URL + path,
+                    headers=self._sign_request("GET", path),
+                    params={"status": "open", "limit": 200},
+                    timeout=15,
+                )
+                resp.raise_for_status()
+                all_markets = resp.json().get("markets", [])
+            except Exception as e:
+                print("Error fetching markets: " + str(e))
+                return self._demo_markets()[:limit]
+
+        result = [self._normalize(m) for m in all_markets if m]
+        result = [m for m in result if m]
+        print("Found " + str(len(result)) + " markets after filtering")
+
+        if not result:
+            print("No real markets found — using demo markets")
             return self._demo_markets()[:limit]
+
+        return result[:limit]
 
     def _normalize(self, raw):
         try:
