@@ -45,12 +45,15 @@ class KalshiClient:
                 timeout=15,
             )
             resp.raise_for_status()
-            markets = resp.json().get("markets", [])
-# Debug: print first 3 raw titles so we can see what Kalshi is returning
-for m in markets[:3]:
-    print("RAW TITLE: " + str(m.get("title", "NO TITLE")))
-            result  = [self._normalize(m) for m in markets if m]
-            result  = [m for m in result if m]
+            raw_markets = resp.json().get("markets", [])
+
+            # Debug: show first 5 raw titles so we can see what Kalshi returns
+            print("DEBUG — first 5 raw titles from Kalshi:")
+            for m in raw_markets[:5]:
+                print("  RAW: " + str(m.get("title", "NO TITLE")))
+
+            result = [self._normalize(m) for m in raw_markets if m]
+            result = [m for m in result if m]
             print("Found " + str(len(result)) + " markets after filtering")
             return result[:limit]
         except Exception as e:
