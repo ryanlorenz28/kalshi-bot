@@ -58,27 +58,18 @@ class KalshiClient:
         try:
             title = raw.get("title", "Unknown market")
 
-            # Skip multi-outcome markets — various patterns Kalshi uses
-            if title.count(",") >= 1:
+            # Only skip the obviously garbled multi-outcome formats
+            # Pattern 1: "yes PlayerA, yes PlayerB, yes PlayerC..."
+            if title.lower().startswith("yes ") and "," in title:
                 return None
-            if title.lower().startswith("yes "):
+            # Pattern 2: "no Over X, yes Over Y..."
+            if title.lower().startswith("no ") and "," in title:
                 return None
-            if title.lower().startswith("no "):
+            # Pattern 3: More than 3 commas = definitely a list
+            if title.count(",") >= 3:
                 return None
-            if " or " in title.lower():
-                return None
-
-            # Skip very short or unclear titles
-            if len(title) < 10:
-                return None
-
-            # Must contain a question word or future tense to be a real market
-            title_lower = title.lower()
-            if not any(w in title_lower for w in [
-                "will", "would", "who", "what", "when", "which",
-                "how", "does", "is", "are", "can", "above", "below",
-                "reach", "hit", "win", "lose", "close", "end", "stay"
-            ]):
+            # Skip very short titles
+            if len(title) < 8:
                 return None
 
             # Get yes price — try multiple fields Kalshi uses
