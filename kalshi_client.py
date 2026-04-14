@@ -46,6 +46,9 @@ class KalshiClient:
             )
             resp.raise_for_status()
             markets = resp.json().get("markets", [])
+# Debug: print first 3 raw titles so we can see what Kalshi is returning
+for m in markets[:3]:
+    print("RAW TITLE: " + str(m.get("title", "NO TITLE")))
             result  = [self._normalize(m) for m in markets if m]
             result  = [m for m in result if m]
             print("Found " + str(len(result)) + " markets after filtering")
