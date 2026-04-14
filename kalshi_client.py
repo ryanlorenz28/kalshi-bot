@@ -41,7 +41,7 @@ class KalshiClient:
             resp = self.session.get(
                 self.BASE_URL + path,
                 headers=self._sign_request("GET", path),
-                params={"status": "open", "limit": limit * 4},
+                params={"status": "open", "limit": limit * 8},
                 timeout=15,
             )
             resp.raise_for_status()
@@ -58,16 +58,27 @@ class KalshiClient:
         try:
             title = raw.get("title", "Unknown market")
 
-            # Skip multi-outcome markets — show as comma-separated lists
-            if title.count(",") >= 2:
+            # Skip multi-outcome markets — various patterns Kalshi uses
+            if title.count(",") >= 1:
                 return None
-
-            # Skip markets where title starts with "yes " (another multi-outcome pattern)
             if title.lower().startswith("yes "):
+                return None
+            if title.lower().startswith("no "):
+                return None
+            if " or " in title.lower():
                 return None
 
             # Skip very short or unclear titles
             if len(title) < 10:
+                return None
+
+            # Must contain a question word or future tense to be a real market
+            title_lower = title.lower()
+            if not any(w in title_lower for w in [
+                "will", "would", "who", "what", "when", "which",
+                "how", "does", "is", "are", "can", "above", "below",
+                "reach", "hit", "win", "lose", "close", "end", "stay"
+            ]):
                 return None
 
             # Get yes price — try multiple fields Kalshi uses
