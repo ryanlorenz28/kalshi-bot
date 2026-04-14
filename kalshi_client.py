@@ -42,20 +42,27 @@ class KalshiClient:
         """
         # These series reliably return clean binary Yes/No markets on Kalshi
         good_series = [
-            "KXBTCD",      # Bitcoin daily
-            "KXETHD",      # Ethereum daily
-            "KXSPX",       # S&P 500
-            "KXNASD",      # Nasdaq
-            "KXINFL",      # Inflation / CPI
-            "KXFED",       # Fed rate decisions
-            "KXUNemp",     # Unemployment
-            "KXGDP",       # GDP
-            "KXREC",       # Recession
-            "KXPRES",      # Presidential approval
-            "KXCONG",      # Congress
-            "KXHOUSE",     # Housing
-            "KXOIL",       # Oil prices
-            "KXGOLD",      # Gold
+            "KXBTCD",       # Bitcoin daily
+            "KXBTCW",       # Bitcoin weekly
+            "KXETHD",       # Ethereum daily
+            "KXSPX",        # S&P 500
+            "KXSPXD",       # S&P 500 daily
+            "KXNASD",       # Nasdaq
+            "KXNASDD",      # Nasdaq daily
+            "KXINFL",       # Inflation / CPI
+            "KXCPI",        # CPI
+            "KXFED",        # Fed rate decisions
+            "KXFFR",        # Federal funds rate
+            "KXUNEMP",      # Unemployment
+            "KXGDP",        # GDP
+            "KXREC",        # Recession
+            "KXPRES",       # Presidential approval
+            "KXTRUMP",      # Trump related
+            "KXHOUSE",      # Housing / real estate
+            "KXOIL",        # Oil prices
+            "KXGOLD",       # Gold
+            "KXDXY",        # US Dollar index
+            "KXVIX",        # VIX volatility
         ]
 
         all_markets = []
@@ -97,6 +104,31 @@ class KalshiClient:
             except Exception as e:
                 print("Error fetching markets: " + str(e))
                 return self._demo_markets()[:limit]
+
+        # Also do a general fetch to supplement series results
+        try:
+            path = "/markets"
+            resp = self.session.get(
+                self.BASE_URL + path,
+                headers=self._sign_request("GET", path),
+                params={"status": "open", "limit": 200},
+                timeout=15,
+            )
+            if resp.status_code == 200:
+                general = resp.json().get("markets", [])
+                # Only add markets from non-sports categories
+                sports_keywords = [
+                    "nba", "nfl", "mlb", "nhl", "soccer", "tennis",
+                    "golf", "mma", "ufc", "ncaa", "cfb", "nascar",
+                    "pitcher", "batter", "touchdown", "homerun",
+                ]
+                for m in general:
+                    ticker = (m.get("ticker") or "").lower()
+                    title  = (m.get("title") or "").lower()
+                    if not any(kw in ticker or kw in title for kw in sports_keywords):
+                        all_markets.append(m)
+        except Exception:
+            pass
 
         result = [self._normalize(m) for m in all_markets if m]
         result = [m for m in result if m]
