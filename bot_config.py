@@ -17,7 +17,7 @@ class BotConfig:
     PAPER_STARTING_BALANCE = 1000.00
 
     # ─── SCANNING ─────────────────────────────────────────────
-    MARKETS_TO_SCAN        = 25     # Reduced from 30 to save API costs
+    MARKETS_TO_SCAN        = 40     # Reduced from 30 to save API costs
     CYCLE_INTERVAL_MINUTES = 60     # Run every hour instead of 30 min
     DELAY_BETWEEN_ANALYSES = 3
 
