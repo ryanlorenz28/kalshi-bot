@@ -53,7 +53,7 @@ class KalshiClient:
             private_key = serialization.load_pem_private_key(pem.encode(), password=None)
             signature = private_key.sign(
                 message.encode(),
-                PSS(mgf=MGF1(hashes.SHA256()), salt_length=PSS.MAX_LENGTH),
+                PSS(mgf=MGF1(hashes.SHA256()), salt_length=PSS.DIGEST_LENGTH),
                 hashes.SHA256()
             )
             return {
