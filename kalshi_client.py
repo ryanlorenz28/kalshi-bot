@@ -18,15 +18,38 @@ class KalshiClient:
 
     # ─── AUTH ──────────────────────────────────────────────────────────────────
 
+    def _parse_private_key(self, raw):
+        """
+        Normalize a private key from any Railway storage format into valid PEM.
+        Handles: literal \\n, real newlines, missing headers, one long base64 string.
+        """
+        # Replace literal \n sequences with real newlines
+        pk = raw.replace("\\n", "\n").replace("\\\\n", "\n")
+
+        # Split into lines, strip whitespace, drop blanks
+        lines = [l.strip() for l in pk.splitlines()]
+        lines = [l for l in lines if l]
+
+        # Extract only the base64 body (drop any existing headers)
+        body_lines = [l for l in lines if not l.startswith("-----")]
+
+        # If body landed as one long string, chunk into 64-char lines
+        if len(body_lines) == 1:
+            b64 = body_lines[0]
+            body_lines = [b64[i:i+64] for i in range(0, len(b64), 64)]
+
+        # Reassemble with correct PEM structure
+        pem = "-----BEGIN RSA PRIVATE KEY-----\n"
+        pem += "\n".join(body_lines)
+        pem += "\n-----END RSA PRIVATE KEY-----\n"
+        return pem
+
     def _sign_request(self, method, path):
         timestamp = str(int(datetime.now(timezone.utc).timestamp() * 1000))
         message = timestamp + method.upper() + path
         try:
-            pk = self.config.KALSHI_API_PRIVATE_KEY
-            pk = pk.replace("\\n", "\n")
-            if not pk.startswith("-----"):
-                pk = "-----BEGIN RSA PRIVATE KEY-----\n" + pk + "\n-----END RSA PRIVATE KEY-----"
-            private_key = serialization.load_pem_private_key(pk.encode(), password=None)
+            pem = self._parse_private_key(self.config.KALSHI_API_PRIVATE_KEY)
+            private_key = serialization.load_pem_private_key(pem.encode(), password=None)
             signature = private_key.sign(message.encode(), padding.PKCS1v15(), hashes.SHA256())
             return {
                 "KALSHI-ACCESS-KEY": self.config.KALSHI_API_KEY_ID,
