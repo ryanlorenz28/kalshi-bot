@@ -2,6 +2,7 @@ import requests
 import base64
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives.asymmetric.padding import PSS, MGF1
 from datetime import datetime, timezone
 
 
@@ -50,7 +51,11 @@ class KalshiClient:
         try:
             pem = self._parse_private_key(self.config.KALSHI_API_PRIVATE_KEY)
             private_key = serialization.load_pem_private_key(pem.encode(), password=None)
-            signature = private_key.sign(message.encode(), padding.PKCS1v15(), hashes.SHA256())
+            signature = private_key.sign(
+                message.encode(),
+                PSS(mgf=MGF1(hashes.SHA256()), salt_length=PSS.MAX_LENGTH),
+                hashes.SHA256()
+            )
             return {
                 "KALSHI-ACCESS-KEY": self.config.KALSHI_API_KEY_ID,
                 "KALSHI-ACCESS-TIMESTAMP": timestamp,
