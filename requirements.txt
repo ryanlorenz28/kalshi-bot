@@ -4,4 +4,3 @@ python-dotenv
 schedule
 colorama
 cryptography
-kalshi_python_sync
