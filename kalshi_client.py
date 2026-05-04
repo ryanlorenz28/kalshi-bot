@@ -16,6 +16,8 @@ class KalshiClient:
             "Content-Type": "application/json",
         })
 
+    # ─── AUTH ──────────────────────────────────────────────────────────────────
+
     def _sign_request(self, method, path):
         timestamp = str(int(datetime.now(timezone.utc).timestamp() * 1000))
         message = timestamp + method.upper() + path
@@ -34,6 +36,8 @@ class KalshiClient:
         except Exception as e:
             print("Signing error: " + str(e))
             return {}
+
+    # ─── MARKETS ───────────────────────────────────────────────────────────────
 
     def get_markets(self, limit=10):
         path = "/markets"
@@ -56,14 +60,21 @@ class KalshiClient:
 
     def _normalize(self, raw):
         try:
-            yes_price = raw.get("yes_ask_dollars") or raw.get("yes_bid_dollars") or raw.get("last_price_dollars") or raw.get("previous_yes_ask_dollars") or "0.5"
+            yes_price = (
+                raw.get("yes_ask_dollars")
+                or raw.get("yes_bid_dollars")
+                or raw.get("last_price_dollars")
+                or raw.get("previous_yes_ask_dollars")
+                or "0.5"
+            )
             yes_price = float(yes_price)
             if yes_price > 1:
                 yes_price = yes_price / 100
             if yes_price <= 0 or yes_price >= 1:
                 yes_price = 0.5
+            ticker = raw.get("ticker", "unknown")
             return {
-                "id": raw.get("ticker", "unknown"),
+                "id": ticker,
                 "question": raw.get("title", "Unknown market"),
                 "description": raw.get("rules_primary", ""),
                 "market_type": "binary",
@@ -75,28 +86,98 @@ class KalshiClient:
                 "liquidity": float(raw.get("liquidity_dollars", 0) or 0),
                 "days_to_resolve": self._days_until(raw.get("close_time", "")),
                 "category": raw.get("event_ticker", "General"),
-                "url": "https://kalshi.com/markets/" + raw.get("ticker", ""),
+                "url": "https://kalshi.com/markets/" + ticker,
             }
         except Exception:
             return None
 
-    def place_order(self, ticker, side, amount_usd, dry_run=True):
+    # ─── ORDERS ────────────────────────────────────────────────────────────────
+
+    def place_order(self, ticker, side, amount_usd, price, dry_run=None):
+        """
+        Place a market order on Kalshi.
+
+        Parameters
+        ----------
+        ticker     : market ticker string
+        side       : "yes" or "no"
+        amount_usd : dollar amount to spend
+        price      : current price of the chosen side (0.0–1.0)
+        dry_run    : override paper/live mode. None = use config.PAPER_TRADING
+
+        Kalshi counts
+        -------------
+        Each contract costs `price` dollars and pays $1 if correct.
+        count = floor(amount_usd / price)   — minimum 1 contract
+        """
+        if dry_run is None:
+            dry_run = self.config.PAPER_TRADING
+
+        # Contract count calculation (the critical fix)
+        price = max(0.01, min(0.99, float(price)))   # guard against 0/1
+        count = max(1, int(amount_usd / price))
+        actual_cost = round(count * price, 2)
+
         if dry_run:
-            print("[PAPER] Would bet $" + str(amount_usd) + " on " + side.upper() + " for " + ticker)
-            return {"status": "paper", "ticker": ticker, "side": side, "amount": amount_usd}
+            print(
+                f"[PAPER] {side.upper()} {count} contracts @ ${price:.2f} "
+                f"= ${actual_cost:.2f} on {ticker}"
+            )
+            return {
+                "status": "paper",
+                "ticker": ticker,
+                "side": side,
+                "count": count,
+                "price": price,
+                "cost_usd": actual_cost,
+            }
+
+        # ── Live order ──────────────────────────────────────────
         path = "/portfolio/orders"
+        payload = {
+            "ticker": ticker,
+            "action": "buy",
+            "side": side.lower(),       # "yes" or "no"
+            "type": "limit",
+            "count": count,
+            "yes_price": int(price * 100) if side.lower() == "yes" else int((1 - price) * 100),
+        }
         try:
             resp = self.session.post(
                 self.BASE_URL + path,
                 headers=self._sign_request("POST", path),
-                json={"ticker": ticker, "side": side, "type": "market", "count": int(amount_usd)},
+                json=payload,
                 timeout=15,
             )
             resp.raise_for_status()
-            return resp.json()
+            result = resp.json()
+            result["cost_usd"] = actual_cost
+            result["count"] = count
+            return result
         except Exception as e:
             print("Error placing order: " + str(e))
             return None
+
+    # ─── PORTFOLIO ─────────────────────────────────────────────────────────────
+
+    def get_balance(self):
+        """Return available balance in dollars, or None on error."""
+        path = "/portfolio/balance"
+        try:
+            resp = self.session.get(
+                self.BASE_URL + path,
+                headers=self._sign_request("GET", path),
+                timeout=15,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            # Kalshi returns balance in cents
+            return data.get("balance", 0) / 100
+        except Exception as e:
+            print("Error fetching balance: " + str(e))
+            return None
+
+    # ─── HELPERS ───────────────────────────────────────────────────────────────
 
     def _days_until(self, date_str):
         if not date_str:
@@ -122,4 +203,21 @@ class KalshiClient:
                 "liquidity": 25000,
                 "days_to_resolve": 1,
                 "category": "Financials",
-                "url": "htt
+                "url": "https://kalshi.com/demo",
+            },
+            {
+                "id": "DEMO-002",
+                "question": "Will Bitcoin be above $80000 at end of day?",
+                "description": "Resolves YES if BTC/USD is above 80000.",
+                "market_type": "binary",
+                "outcomes": [
+                    {"name": "Yes", "price": 0.44},
+                    {"name": "No", "price": 0.56},
+                ],
+                "volume": 80000,
+                "liquidity": 40000,
+                "days_to_resolve": 1,
+                "category": "Crypto",
+                "url": "https://kalshi.com/demo",
+            },
+        ]
