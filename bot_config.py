@@ -13,6 +13,7 @@ class BotConfig:
     ANTHROPIC_API_KEY      = os.getenv("ANTHROPIC_API_KEY", "")
     KALSHI_API_KEY_ID      = os.getenv("KALSHI_API_KEY_ID", "")
     KALSHI_API_PRIVATE_KEY = os.getenv("KALSHI_API_PRIVATE_KEY", "")
+    NEWS_API_KEY           = os.getenv("NEWS_API_KEY", "")   # optional — bot works without it
 
     # ─── TRADING MODE ─────────────────────────────────────────
     # Set PAPER_TRADING = False to enable real orders.
