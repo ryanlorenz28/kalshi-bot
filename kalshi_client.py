@@ -59,10 +59,20 @@ class KalshiClient:
             return None
 
     SKIP_KEYWORDS = (
-        "nba", "nfl", "mlb", "nhl", "nascar", "pga", "ufc", "mma",
-        "tennis", "soccer", "football", "basketball", "baseball", "hockey",
+        # Player name indicators
+        "rebounds", "assists", "points scored", "wins by", "goals scored",
+        "3-pointers", "steals", "blocks", "turnovers", "field goals",
+        # Sports events
         "premier league", "champions league", "la liga", "bundesliga",
-        "wins by", "points scored", "rebounds", "assists", "goals scored",
+        "serie a", "ligue 1", "mls", "ufc", "mma", "nascar", "pga",
+        # Outcome patterns common in sports
+        "over 1.5", "over 2.5", "over 3.5", "over 4.5", "over 0.5",
+    )
+
+    SKIP_EVENT_PREFIXES = (
+        "KXMVE", "KXNBA", "KXNFL", "KXMLB", "KXNHL",
+        "KXSOC", "KXMMA", "KXTEN", "KXNASCAR", "KXPGA",
+        "KXUFC", "KXCBB", "KXNCAA",
     )
 
     # MARKETS
@@ -72,7 +82,7 @@ class KalshiClient:
             r = self.session.get(
                 self.BASE_URL + path,
                 headers=self._headers("GET", path),
-                params={"status": "open", "limit": 100},
+                params={"status": "open", "limit": 200},
                 timeout=15,
             )
             r.raise_for_status()
@@ -80,6 +90,11 @@ class KalshiClient:
 
             result = []
             for m in markets:
+                # Filter by event_ticker prefix (most reliable)
+                event_ticker = m.get("event_ticker", "")
+                if any(event_ticker.startswith(p) for p in self.SKIP_EVENT_PREFIXES):
+                    continue
+                # Also filter by title keywords as backup
                 title = m.get("title", "").lower()
                 if any(kw in title for kw in self.SKIP_KEYWORDS):
                     continue
@@ -133,7 +148,10 @@ class KalshiClient:
         }
         try:
             r = self.session.post(self.BASE_URL + path, headers=self._headers("POST", path), json=payload, timeout=15)
-            r.raise_for_status()
+            if not r.ok:
+                print(f"Error placing order ({r.status_code}): {r.text[:300]}")
+                print(f"Payload was: {payload}")
+                return None
             result = r.json()
             result["cost_usd"] = actual_cost
             result["count"] = count
