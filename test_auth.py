@@ -30,8 +30,11 @@ def load_key(raw):
     return serialization.load_pem_private_key(pem.encode(), password=None)
 
 def make_headers(key, method, path):
-    ts  = str(int(datetime.now(timezone.utc).timestamp() * 1000))
-    msg = (ts + method.upper() + path).encode("utf-8")
+    # Use local time per official Kalshi docs
+    ts  = str(int(datetime.now().timestamp() * 1000))
+    # Strip query params from path before signing
+    path_to_sign = path.split('?')[0]
+    msg = (ts + method.upper() + path_to_sign).encode("utf-8")
     sig = key.sign(msg, PSS(mgf=MGF1(hashes.SHA256()), salt_length=PSS.DIGEST_LENGTH), hashes.SHA256())
     return {
         "KALSHI-ACCESS-KEY":       KEY_ID,
