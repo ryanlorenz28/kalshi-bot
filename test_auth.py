@@ -55,7 +55,8 @@ except Exception as e:
 
 # Test 1: Balance
 path = "/portfolio/balance"
-r = requests.get(BASE_URL + path, headers=make_headers(private_key, "GET", path), timeout=15)
+sign_path = "/trade-api/v2" + path
+r = requests.get(BASE_URL + path, headers=make_headers(private_key, "GET", sign_path), timeout=15)
 print(f"\nGET /portfolio/balance → {r.status_code}")
 if r.status_code == 200:
     bal = r.json().get("balance", 0) / 100
@@ -63,9 +64,10 @@ if r.status_code == 200:
 else:
     print(f"❌ Response: {r.text[:300]}")
 
-# Test 2: Markets (no auth needed but confirms connectivity)
+# Test 2: Markets
 path = "/markets"
-r = requests.get(BASE_URL + path, headers=make_headers(private_key, "GET", path),
+sign_path = "/trade-api/v2" + path
+r = requests.get(BASE_URL + path, headers=make_headers(private_key, "GET", sign_path),
                  params={"status": "open", "limit": 1}, timeout=15)
 print(f"\nGET /markets → {r.status_code}")
 if r.status_code == 200:
@@ -76,7 +78,8 @@ else:
 
 # Test 3: Portfolio positions
 path = "/portfolio/positions"
-r = requests.get(BASE_URL + path, headers=make_headers(private_key, "GET", path), timeout=15)
+sign_path = "/trade-api/v2" + path
+r = requests.get(BASE_URL + path, headers=make_headers(private_key, "GET", sign_path), timeout=15)
 print(f"\nGET /portfolio/positions → {r.status_code}")
 if r.status_code == 200:
     print(f"✅ Positions endpoint works: {r.text[:100]}")
