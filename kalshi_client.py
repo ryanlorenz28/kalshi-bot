@@ -58,18 +58,45 @@ class KalshiClient:
             print("Error fetching balance: " + str(e))
             return None
 
+    SKIP_PREFIXES = (
+        "KXMVE",   # sports parlays / multivariate
+        "KXNBA",   # NBA
+        "KXNFL",   # NFL
+        "KXMLB",   # MLB
+        "KXNHL",   # NHL
+        "KXSOC",   # Soccer
+        "KXMMA",   # MMA
+        "KXTEN",   # Tennis
+        "KXNASCAR", # NASCAR
+        "KXPGA",   # Golf
+    )
+
     # MARKETS
     def get_markets(self, limit=10):
         path = "/markets"
         try:
-            r = self.session.get(self.BASE_URL + path, headers=self._headers("GET", path),
-                                 params={"status": "open", "limit": limit * 3}, timeout=15)
+            r = self.session.get(
+                self.BASE_URL + path,
+                headers=self._headers("GET", path),
+                params={"status": "open", "limit": 100},
+                timeout=15,
+            )
             r.raise_for_status()
             markets = r.json().get("markets", [])
-            result  = [self._normalize(m) for m in markets if m]
-            result  = [m for m in result if m]
+
+            result = []
+            for m in markets:
+                ticker = m.get("ticker", "")
+                if any(ticker.startswith(p) for p in self.SKIP_PREFIXES):
+                    continue
+                norm = self._normalize(m)
+                if norm:
+                    result.append(norm)
+                if len(result) >= limit:
+                    break
+
             print(f"Found {len(result)} markets after filtering")
-            return result[:limit]
+            return result if result else self._demo_markets()[:limit]
         except Exception as e:
             print("Error fetching markets: " + str(e))
             return self._demo_markets()[:limit]
