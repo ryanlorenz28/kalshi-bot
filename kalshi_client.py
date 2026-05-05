@@ -33,8 +33,9 @@ class KalshiClient:
 
     # SIGNING
     def _headers(self, method: str, path: str) -> dict:
-        ts  = str(int(datetime.now(timezone.utc).timestamp() * 1000))
-        msg = (ts + method.upper() + path).encode("utf-8")
+        ts  = str(int(datetime.now().timestamp() * 1000))
+        full_path = "/trade-api/v2" + path.split("?")[0]
+        msg = (ts + method.upper() + full_path).encode("utf-8")
         sig = self._private_key.sign(
             msg,
             PSS(mgf=MGF1(hashes.SHA256()), salt_length=PSS.DIGEST_LENGTH),
