@@ -58,15 +58,6 @@ class KalshiClient:
             print("Error fetching balance: " + str(e))
             return None
 
-    SKIP_EVENT_PREFIXES = (
-        "KXMVE",    # multivariate parlay bundles — hardest for Claude to price
-    )
-
-    SKIP_KEYWORDS = (
-        "rebounds", "assists", "wins by over", "goals scored",
-        "3-pointers", "steals", "blocks", "turnovers",
-    )
-
     # MARKETS
     def get_markets(self, limit=10):
         path = "/markets"
@@ -74,34 +65,15 @@ class KalshiClient:
             r = self.session.get(
                 self.BASE_URL + path,
                 headers=self._headers("GET", path),
-                params={"status": "open", "limit": 200},
+                params={"status": "open", "limit": limit * 3},
                 timeout=15,
             )
             r.raise_for_status()
             markets = r.json().get("markets", [])
-
-            result = []
-            skipped = 0
-            for m in markets:
-                event_ticker = m.get("event_ticker", "")
-                title = m.get("title", "").lower()
-
-                # Only skip multivariate parlay bundles
-                if any(event_ticker.startswith(p) for p in self.SKIP_EVENT_PREFIXES):
-                    skipped += 1
-                    continue
-                if any(kw in title for kw in self.SKIP_KEYWORDS):
-                    skipped += 1
-                    continue
-
-                norm = self._normalize(m)
-                if norm:
-                    result.append(norm)
-                if len(result) >= limit:
-                    break
-
-            print(f"Found {len(result)} markets ({skipped} parlay bundles skipped, {len(markets)} total)")
-            return result if result else self._demo_markets()[:limit]
+            result = [self._normalize(m) for m in markets if m]
+            result = [m for m in result if m]
+            print(f"Found {len(result)} markets")
+            return result[:limit] if result else self._demo_markets()[:limit]
         except Exception as e:
             print("Error fetching markets: " + str(e))
             return self._demo_markets()[:limit]
