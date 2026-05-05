@@ -58,17 +58,11 @@ class KalshiClient:
             print("Error fetching balance: " + str(e))
             return None
 
-    SKIP_PREFIXES = (
-        "KXMVE",   # sports parlays / multivariate
-        "KXNBA",   # NBA
-        "KXNFL",   # NFL
-        "KXMLB",   # MLB
-        "KXNHL",   # NHL
-        "KXSOC",   # Soccer
-        "KXMMA",   # MMA
-        "KXTEN",   # Tennis
-        "KXNASCAR", # NASCAR
-        "KXPGA",   # Golf
+    SKIP_KEYWORDS = (
+        "nba", "nfl", "mlb", "nhl", "nascar", "pga", "ufc", "mma",
+        "tennis", "soccer", "football", "basketball", "baseball", "hockey",
+        "premier league", "champions league", "la liga", "bundesliga",
+        "wins by", "points scored", "rebounds", "assists", "goals scored",
     )
 
     # MARKETS
@@ -86,8 +80,8 @@ class KalshiClient:
 
             result = []
             for m in markets:
-                ticker = m.get("ticker", "")
-                if any(ticker.startswith(p) for p in self.SKIP_PREFIXES):
+                title = m.get("title", "").lower()
+                if any(kw in title for kw in self.SKIP_KEYWORDS):
                     continue
                 norm = self._normalize(m)
                 if norm:
@@ -95,7 +89,7 @@ class KalshiClient:
                 if len(result) >= limit:
                     break
 
-            print(f"Found {len(result)} markets after filtering")
+            print(f"Found {len(result)} non-sports markets (from {len(markets)} total)")
             return result if result else self._demo_markets()[:limit]
         except Exception as e:
             print("Error fetching markets: " + str(e))
