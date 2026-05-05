@@ -58,21 +58,13 @@ class KalshiClient:
             print("Error fetching balance: " + str(e))
             return None
 
-    SKIP_KEYWORDS = (
-        # Player name indicators
-        "rebounds", "assists", "points scored", "wins by", "goals scored",
-        "3-pointers", "steals", "blocks", "turnovers", "field goals",
-        # Sports events
-        "premier league", "champions league", "la liga", "bundesliga",
-        "serie a", "ligue 1", "mls", "ufc", "mma", "nascar", "pga",
-        # Outcome patterns common in sports
-        "over 1.5", "over 2.5", "over 3.5", "over 4.5", "over 0.5",
+    SKIP_EVENT_PREFIXES = (
+        "KXMVE",    # multivariate parlay bundles — hardest for Claude to price
     )
 
-    SKIP_EVENT_PREFIXES = (
-        "KXMVE", "KXNBA", "KXNFL", "KXMLB", "KXNHL",
-        "KXSOC", "KXMMA", "KXTEN", "KXNASCAR", "KXPGA",
-        "KXUFC", "KXCBB", "KXNCAA",
+    SKIP_KEYWORDS = (
+        "rebounds", "assists", "wins by over", "goals scored",
+        "3-pointers", "steals", "blocks", "turnovers",
     )
 
     # MARKETS
@@ -89,22 +81,26 @@ class KalshiClient:
             markets = r.json().get("markets", [])
 
             result = []
+            skipped = 0
             for m in markets:
-                # Filter by event_ticker prefix (most reliable)
                 event_ticker = m.get("event_ticker", "")
-                if any(event_ticker.startswith(p) for p in self.SKIP_EVENT_PREFIXES):
-                    continue
-                # Also filter by title keywords as backup
                 title = m.get("title", "").lower()
-                if any(kw in title for kw in self.SKIP_KEYWORDS):
+
+                # Only skip multivariate parlay bundles
+                if any(event_ticker.startswith(p) for p in self.SKIP_EVENT_PREFIXES):
+                    skipped += 1
                     continue
+                if any(kw in title for kw in self.SKIP_KEYWORDS):
+                    skipped += 1
+                    continue
+
                 norm = self._normalize(m)
                 if norm:
                     result.append(norm)
                 if len(result) >= limit:
                     break
 
-            print(f"Found {len(result)} non-sports markets (from {len(markets)} total)")
+            print(f"Found {len(result)} markets ({skipped} parlay bundles skipped, {len(markets)} total)")
             return result if result else self._demo_markets()[:limit]
         except Exception as e:
             print("Error fetching markets: " + str(e))
