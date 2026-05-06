@@ -113,6 +113,7 @@ class KalshiClient:
             "ticker": ticker, "action": "buy", "side": side.lower(), "type": "limit", "count": count,
             "yes_price": int(price * 100) if side.lower() == "yes" else int((1 - price) * 100),
             "client_order_id": str(uuid.uuid4()),
+            "time_in_force": "immediate_or_cancel",
         }
         try:
             r = self.session.post(self.BASE_URL + path, headers=self._headers("POST", path), json=payload, timeout=15)
@@ -121,6 +122,13 @@ class KalshiClient:
                 print(f"Payload was: {payload}")
                 return None
             result = r.json()
+            # Check if order actually filled - resting orders don't count
+            order = result.get("order", result)
+            status = order.get("status", "")
+            filled = order.get("count_filled", 0) or order.get("fill_count", 0)
+            if status in ("canceled", "cancelled") or filled == 0:
+                print(f"Order not filled (status={status}, filled={filled}) — treating as no trade")
+                return None
             result["cost_usd"] = actual_cost
             result["count"] = count
             return result
