@@ -112,7 +112,7 @@ class KalshiClient:
         payload = {
             "ticker": ticker, "action": "buy", "side": side.lower(), "type": "limit", "count": count,
             "yes_price": int(price * 100) if side.lower() == "yes" else int((1 - price) * 100),
-            "client_order_id": str(uuid.uuid4()), "time_in_force": "good_til_cancelled",
+            "client_order_id": str(uuid.uuid4()),
         }
         try:
             r = self.session.post(self.BASE_URL + path, headers=self._headers("POST", path), json=payload, timeout=15)
