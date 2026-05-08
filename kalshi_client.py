@@ -63,12 +63,11 @@ class KalshiClient:
         markets = []
         seen = set()
 
-        # 1. Targeted fetch for macro/crypto/political markets by series
         macro_tickers = [
             "KXBTC", "KXETH", "KXINX", "KXNDAQ", "KXDOW",
             "KXCPI", "KXFED", "KXGDP", "KXUNEMP", "KXPCE",
-            "KXPRES", "KXSЕН", "KXHOUSE", "KXGOV",
-            "KXOIL", "KXGOLD", "KXDXY",
+            "KXPRES", "KXSEN", "KXHOUSE", "KXGOV",
+            "KXOIL", "KXGOLD", "KXDXY", "KXTSLA", "KXNVDA",
         ]
         for series in macro_tickers:
             if len(markets) >= limit:
@@ -78,21 +77,22 @@ class KalshiClient:
                 r = self.session.get(
                     self.BASE_URL + path,
                     headers=self._headers("GET", path),
-                    params={"status": "open", "series_ticker": series, "limit": 5},
+                    params={"status": "open", "series_ticker": series, "limit": 10},
                     timeout=10,
                 )
                 if r.status_code == 200:
                     for m in r.json().get("markets", []):
                         ticker = m.get("ticker", "")
-                        if ticker not in seen:
-                            norm = self._normalize(m)
-                            if norm:
-                                markets.append(norm)
-                                seen.add(ticker)
+                        if ticker in seen:
+                            continue
+                        norm = self._normalize(m)
+                        if norm and self._is_tradeable(norm):
+                            markets.append(norm)
+                            seen.add(ticker)
             except Exception:
                 pass
 
-        # 2. Fill remaining slots from default feed (catches anything we missed)
+        # Fill remaining from default feed
         if len(markets) < limit:
             path = "/markets"
             try:
@@ -108,7 +108,7 @@ class KalshiClient:
                         if ticker in seen:
                             continue
                         norm = self._normalize(m)
-                        if norm:
+                        if norm and self._is_tradeable(norm):
                             markets.append(norm)
                             seen.add(ticker)
                         if len(markets) >= limit:
@@ -116,8 +116,17 @@ class KalshiClient:
             except Exception as e:
                 print("Error fetching general markets: " + str(e))
 
-        print(f"Found {len(markets)} markets")
+        print(f"Found {len(markets)} tradeable markets")
         return markets[:limit] if markets else self._demo_markets()[:limit]
+
+    def _is_tradeable(self, market: dict) -> bool:
+        """Filter out near-certain and near-impossible markets."""
+        yes_price = market.get("outcomes", [{}])[0].get("price", 0.5)
+        if yes_price < 0.05 or yes_price > 0.95:
+            return False
+        if market.get("days_to_resolve", 999) == 0:
+            return False
+        return True
 
     def _normalize(self, raw):
         try:
