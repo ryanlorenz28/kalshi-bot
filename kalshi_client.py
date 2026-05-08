@@ -60,23 +60,64 @@ class KalshiClient:
 
     # MARKETS
     def get_markets(self, limit=10):
-        path = "/markets"
-        try:
-            r = self.session.get(
-                self.BASE_URL + path,
-                headers=self._headers("GET", path),
-                params={"status": "open", "limit": limit * 3},
-                timeout=15,
-            )
-            r.raise_for_status()
-            markets = r.json().get("markets", [])
-            result = [self._normalize(m) for m in markets if m]
-            result = [m for m in result if m]
-            print(f"Found {len(result)} markets")
-            return result[:limit] if result else self._demo_markets()[:limit]
-        except Exception as e:
-            print("Error fetching markets: " + str(e))
-            return self._demo_markets()[:limit]
+        markets = []
+        seen = set()
+
+        # 1. Targeted fetch for macro/crypto/political markets by series
+        macro_tickers = [
+            "KXBTC", "KXETH", "KXINX", "KXNDAQ", "KXDOW",
+            "KXCPI", "KXFED", "KXGDP", "KXUNEMP", "KXPCE",
+            "KXPRES", "KXSЕН", "KXHOUSE", "KXGOV",
+            "KXOIL", "KXGOLD", "KXDXY",
+        ]
+        for series in macro_tickers:
+            if len(markets) >= limit:
+                break
+            path = "/markets"
+            try:
+                r = self.session.get(
+                    self.BASE_URL + path,
+                    headers=self._headers("GET", path),
+                    params={"status": "open", "series_ticker": series, "limit": 5},
+                    timeout=10,
+                )
+                if r.status_code == 200:
+                    for m in r.json().get("markets", []):
+                        ticker = m.get("ticker", "")
+                        if ticker not in seen:
+                            norm = self._normalize(m)
+                            if norm:
+                                markets.append(norm)
+                                seen.add(ticker)
+            except Exception:
+                pass
+
+        # 2. Fill remaining slots from default feed (catches anything we missed)
+        if len(markets) < limit:
+            path = "/markets"
+            try:
+                r = self.session.get(
+                    self.BASE_URL + path,
+                    headers=self._headers("GET", path),
+                    params={"status": "open", "limit": 100},
+                    timeout=15,
+                )
+                if r.status_code == 200:
+                    for m in r.json().get("markets", []):
+                        ticker = m.get("ticker", "")
+                        if ticker in seen:
+                            continue
+                        norm = self._normalize(m)
+                        if norm:
+                            markets.append(norm)
+                            seen.add(ticker)
+                        if len(markets) >= limit:
+                            break
+            except Exception as e:
+                print("Error fetching general markets: " + str(e))
+
+        print(f"Found {len(markets)} markets")
+        return markets[:limit] if markets else self._demo_markets()[:limit]
 
     def _normalize(self, raw):
         try:
