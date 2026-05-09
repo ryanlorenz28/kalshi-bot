@@ -158,6 +158,30 @@ class KalshiClient:
         except Exception:
             return None
 
+    def _get_ask_price(self, ticker: str, side: str, fallback: float) -> float:
+        """Fetch the current ask price for a side so we can cross the spread."""
+        try:
+            path = f"/markets/{ticker}"
+            r = self.session.get(
+                self.BASE_URL + path,
+                headers=self._headers("GET", path),
+                timeout=10,
+            )
+            if r.status_code == 200:
+                m = r.json().get("market", {})
+                if side == "yes":
+                    ask = m.get("yes_ask_dollars") or m.get("yes_ask") or fallback
+                else:
+                    ask = m.get("no_ask_dollars") or m.get("no_ask") or (1 - fallback)
+                ask = float(ask)
+                if ask > 1:
+                    ask /= 100
+                # Add 2 cent buffer above ask to ensure fill
+                return min(0.99, ask + 0.02)
+        except Exception:
+            pass
+        return min(0.99, fallback + 0.05)
+
     # ORDERS
     def place_order(self, ticker, side, amount_usd, price, dry_run=None):
         if dry_run is None: dry_run = self.config.PAPER_TRADING
@@ -168,10 +192,10 @@ class KalshiClient:
             print(f"[PAPER] {side.upper()} {count} contracts @ ${price:.2f} = ${actual_cost:.2f} on {ticker}")
             return {"status": "paper", "ticker": ticker, "side": side, "count": count, "price": price, "cost_usd": actual_cost}
         path = "/portfolio/orders"
-        # Kalshi requires a price even for aggressive orders.
-        # We add 5 cents of slippage to ensure the order fills.
-        fill_price = min(0.99, price + 0.05) if side.lower() == "yes" else min(0.99, (1 - price) + 0.05)
-        yes_price_cents = int(fill_price * 100) if side.lower() == "yes" else int((1 - fill_price) * 100)
+        # Fetch the actual ask price for this market to ensure we cross the spread
+        ask_price = self._get_ask_price(ticker, side.lower(), price)
+        yes_price_cents = int(ask_price * 100) if side.lower() == "yes" else int((1 - ask_price) * 100)
+        yes_price_cents = max(1, min(99, yes_price_cents))
         payload = {
             "ticker":          ticker,
             "action":          "buy",
@@ -180,6 +204,7 @@ class KalshiClient:
             "count":           count,
             "yes_price":       yes_price_cents,
             "client_order_id": str(uuid.uuid4()),
+            "time_in_force":   "immediate_or_cancel",
         }
         try:
             r = self.session.post(self.BASE_URL + path, headers=self._headers("POST", path), json=payload, timeout=15)
