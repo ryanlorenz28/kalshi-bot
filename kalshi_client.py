@@ -129,11 +129,14 @@ class KalshiClient:
         return markets[:limit] if markets else self._demo_markets()[:limit]
 
     def _is_tradeable(self, market: dict) -> bool:
-        """Filter out near-certain and near-impossible markets."""
+        """Filter out near-certain, near-impossible, expired, and illiquid markets."""
         yes_price = market.get("outcomes", [{}])[0].get("price", 0.5)
         if yes_price < 0.05 or yes_price > 0.95:
             return False
         if market.get("days_to_resolve", 999) == 0:
+            return False
+        # Skip markets with very low volume — likely illiquid
+        if market.get("volume", 0) < 500:
             return False
         return True
 
