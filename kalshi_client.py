@@ -128,8 +128,15 @@ class KalshiClient:
         print(f"Found {len(markets)} tradeable markets")
         return markets[:limit] if markets else self._demo_markets()[:limit]
 
+    BLACKLIST = {
+        "KXCPI-26MAY-T-0.3",   # illiquid — no asks available
+        "KXCPI-26MAY-T-0.2",   # illiquid — no asks available
+    }
+
     def _is_tradeable(self, market: dict) -> bool:
-        """Filter out near-certain, near-impossible, expired, and illiquid markets."""
+        """Filter out near-certain, near-impossible, expired, illiquid, and blacklisted markets."""
+        if market.get("id") in self.BLACKLIST:
+            return False
         yes_price = market.get("outcomes", [{}])[0].get("price", 0.5)
         if yes_price < 0.05 or yes_price > 0.95:
             return False
