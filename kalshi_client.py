@@ -168,12 +168,17 @@ class KalshiClient:
             print(f"[PAPER] {side.upper()} {count} contracts @ ${price:.2f} = ${actual_cost:.2f} on {ticker}")
             return {"status": "paper", "ticker": ticker, "side": side, "count": count, "price": price, "cost_usd": actual_cost}
         path = "/portfolio/orders"
+        # Kalshi requires a price even for aggressive orders.
+        # We add 5 cents of slippage to ensure the order fills.
+        fill_price = min(0.99, price + 0.05) if side.lower() == "yes" else min(0.99, (1 - price) + 0.05)
+        yes_price_cents = int(fill_price * 100) if side.lower() == "yes" else int((1 - fill_price) * 100)
         payload = {
             "ticker":          ticker,
             "action":          "buy",
             "side":            side.lower(),
-            "type":            "market",
+            "type":            "limit",
             "count":           count,
+            "yes_price":       yes_price_cents,
             "client_order_id": str(uuid.uuid4()),
         }
         try:
