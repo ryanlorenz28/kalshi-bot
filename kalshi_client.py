@@ -62,6 +62,7 @@ class KalshiClient:
     def get_markets(self, limit=10):
         markets = []
         seen = set()
+        event_count = {}  # max 2 markets per event to avoid bucket spam
 
         macro_tickers = [
             "KXBTC", "KXETH", "KXINX", "KXNDAQ", "KXDOW",
@@ -83,12 +84,16 @@ class KalshiClient:
                 if r.status_code == 200:
                     for m in r.json().get("markets", []):
                         ticker = m.get("ticker", "")
+                        event = m.get("event_ticker", series)
                         if ticker in seen:
+                            continue
+                        if event_count.get(event, 0) >= 2:
                             continue
                         norm = self._normalize(m)
                         if norm and self._is_tradeable(norm):
                             markets.append(norm)
                             seen.add(ticker)
+                            event_count[event] = event_count.get(event, 0) + 1
             except Exception:
                 pass
 
@@ -105,12 +110,16 @@ class KalshiClient:
                 if r.status_code == 200:
                     for m in r.json().get("markets", []):
                         ticker = m.get("ticker", "")
+                        event = m.get("event_ticker", "")
                         if ticker in seen:
+                            continue
+                        if event_count.get(event, 0) >= 2:
                             continue
                         norm = self._normalize(m)
                         if norm and self._is_tradeable(norm):
                             markets.append(norm)
                             seen.add(ticker)
+                            event_count[event] = event_count.get(event, 0) + 1
                         if len(markets) >= limit:
                             break
             except Exception as e:
