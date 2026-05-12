@@ -35,7 +35,8 @@ class BotConfig:
 
     # ─── TRADING RULES ────────────────────────────────────────
     MIN_CONFIDENCE_TO_TRADE = 0.60
-    MAX_OPEN_POSITIONS      = 3
+    MAX_OPEN_POSITIONS      = 5          # increased since we now cap per-series
+    MAX_EXPOSURE_PER_SERIES = 30.00      # max $ spent on any single company/topic
     KELLY_FRACTION          = 0.25
 
     # ─── POSITION MANAGER ─────────────────────────────────────
