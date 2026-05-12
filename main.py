@@ -113,6 +113,16 @@ def run_cycle(client, analyzer, logger, config, state):
         if market["id"] in state["open_positions"]:
             continue
 
+        # Check per-series exposure limit
+        series = market.get("category", market["id"])
+        series_spent = sum(
+            t.get("cost_usd", 0) for t in state["open_positions"].values()
+            if t.get("series", "") == series and t.get("mode") == "LIVE"
+        )
+        if series_spent >= config.MAX_EXPOSURE_PER_SERIES:
+            logger.info(f"  ⛔ Series cap (${config.MAX_EXPOSURE_PER_SERIES:.0f}) reached for {series[:40]}")
+            continue
+
         # Re-check daily loss limit each iteration
         if not check_daily_loss_limit(state, config, logger):
             return
@@ -198,6 +208,7 @@ def run_cycle(client, analyzer, logger, config, state):
         trade_record = {
             "timestamp":      datetime.now().isoformat(),
             "mode":           trade_mode,
+            "series":         market.get("category", market["id"]),
             "market_id":      market["id"],
             "question":       market["question"],
             "outcome":        outcome,
