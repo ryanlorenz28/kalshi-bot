@@ -34,7 +34,7 @@ class BotConfig:
     DELAY_BETWEEN_ANALYSES = 2
 
     # ─── TRADING RULES ────────────────────────────────────────
-    MIN_CONFIDENCE_TO_TRADE = 0.65
+    MIN_CONFIDENCE_TO_TRADE = 0.60
     MAX_OPEN_POSITIONS      = 3
     KELLY_FRACTION          = 0.25
 
