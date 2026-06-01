@@ -5,20 +5,23 @@ Run in a background thread alongside the bot.
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import json
 import threading
+import os
 
 _state_ref = None
 _client_ref = None
 _config_ref = None
 
-def start(state, client, config, port=8080):
+def start(state, client, config):
     global _state_ref, _client_ref, _config_ref
     _state_ref = state
     _client_ref = client
     _config_ref = config
 
+    port = int(os.environ.get("PORT", 8080))
+
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, format, *args):
-            pass  # silence request logs
+            pass
 
         def do_GET(self):
             if self.path == "/status":
