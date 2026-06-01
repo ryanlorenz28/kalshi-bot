@@ -12,6 +12,7 @@ import schedule
 import sys
 import csv
 import os
+import status_server
 from datetime import datetime, date
 from colorama import init, Fore, Style
 from bot_config import BotConfig
@@ -48,10 +49,6 @@ def log_trade(trade: dict, config):
 
 
 def check_daily_loss_limit(state, config, logger) -> bool:
-    """
-    Returns True if it's safe to keep trading.
-    Returns False (and logs a warning) if daily loss limit is breached.
-    """
     if config.PAPER_TRADING:
         return True
     if state["daily_loss"] >= config.DAILY_LOSS_LIMIT:
@@ -64,7 +61,6 @@ def check_daily_loss_limit(state, config, logger) -> bool:
 
 
 def reset_daily_state_if_new_day(state):
-    """Reset daily counters at the start of each new calendar day."""
     today = date.today()
     if state.get("last_reset_date") != today:
         state["daily_loss"] = 0.0
@@ -72,21 +68,18 @@ def reset_daily_state_if_new_day(state):
 
 
 def real_money_remaining(state, config) -> float:
-    """How much real money is still available to spend."""
     return max(0.0, config.REAL_MONEY_LIMIT - state["real_money_spent"])
 
 
 def run_cycle(client, analyzer, logger, config, state):
     reset_daily_state_if_new_day(state)
 
-    # Daily loss check before doing anything
     if not check_daily_loss_limit(state, config, logger):
         return
 
     logger.info("=" * 55)
     logger.info("🔄 Starting new trading cycle...")
 
-    # Show real money status if live
     if not config.PAPER_TRADING:
         remaining = real_money_remaining(state, config)
         logger.info(
@@ -113,7 +106,6 @@ def run_cycle(client, analyzer, logger, config, state):
         if market["id"] in state["open_positions"]:
             continue
 
-        # Check per-series exposure limit
         series = market.get("category", market["id"])
         series_spent = sum(
             t.get("cost_usd", 0) for t in state["open_positions"].values()
@@ -123,7 +115,6 @@ def run_cycle(client, analyzer, logger, config, state):
             logger.info(f"  ⛔ Series cap (${config.MAX_EXPOSURE_PER_SERIES:.0f}) reached for {series[:40]}")
             continue
 
-        # Re-check daily loss limit each iteration
         if not check_daily_loss_limit(state, config, logger):
             return
 
@@ -135,22 +126,18 @@ def run_cycle(client, analyzer, logger, config, state):
             time.sleep(config.DELAY_BETWEEN_ANALYSES)
             continue
 
-        # ── Decide live vs paper ────────────────────────────────
         outcome     = analysis["outcome_to_buy"]
         confidence  = analysis["confidence"]
-        side        = outcome.lower()   # "yes" or "no"
+        side        = outcome.lower()
 
-        # Pick the right side's price
         entry_price = (
             market["outcomes"][0]["price"] if outcome == "Yes"
             else market["outcomes"][1]["price"]
         )
 
-        # How much to bet
         if not config.PAPER_TRADING:
             remaining = real_money_remaining(state, config)
             if remaining <= 0:
-                # Real money cap hit — fall back to paper
                 bet_amount = config.bet_size(confidence, config.PAPER_STARTING_BALANCE)
                 use_real   = False
                 logger.info(
@@ -168,7 +155,6 @@ def run_cycle(client, analyzer, logger, config, state):
             bet_amount = config.bet_size(confidence, config.PAPER_STARTING_BALANCE)
             use_real   = False
 
-        # ── Place the order ─────────────────────────────────────
         order_result = client.place_order(
             ticker    = market["id"],
             side      = side,
@@ -198,11 +184,8 @@ def run_cycle(client, analyzer, logger, config, state):
             + Style.RESET_ALL
         )
 
-        # ── Update state ────────────────────────────────────────
         if use_real:
             state["real_money_spent"] += actual_cost
-            # Daily loss is updated when positions resolve — for now track spend
-            # as a conservative proxy so the limit still triggers
             state["daily_loss"] += actual_cost
 
         trade_record = {
@@ -229,7 +212,6 @@ def run_cycle(client, analyzer, logger, config, state):
 
         time.sleep(config.DELAY_BETWEEN_ANALYSES)
 
-    # ── Cycle summary ───────────────────────────────────────────────────────
     open_count = len(state["open_positions"])
     if not config.PAPER_TRADING:
         logger.info(
@@ -254,7 +236,6 @@ def main():
     client   = KalshiClient(config)
     analyzer = AIAnalyzer(config, logger)
 
-    # ── Fetch real balance from Kalshi on startup (live mode only) ──────────
     if not config.PAPER_TRADING:
         live_balance = client.get_balance()
         if live_balance is not None:
@@ -268,6 +249,9 @@ def main():
         "daily_loss":       0.0,
         "last_reset_date":  date.today(),
     }
+
+    # ── Start status server for the dashboard ──────────────────
+    status_server.start(state, client, config)
 
     mode_str = "LIVE" if not config.PAPER_TRADING else "PAPER"
     logger.info(f"🚀 Bot started in {mode_str} mode")
