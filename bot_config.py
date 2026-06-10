@@ -23,8 +23,8 @@ class BotConfig:
     PAPER_STARTING_BALANCE = 1000.00     # used only when fully paper trading
 
     # ─── LIVE TRADING SAFETY LIMITS ───────────────────────────
-    REAL_MONEY_LIMIT        = 350.00     # updated to reflect actual open position exposure
-    TOTAL_EXPOSURE_LIMIT    = 400.00     # absolute hard stop — bot stops trading at this total
+    REAL_MONEY_LIMIT        = 450.00     # updated to reflect actual open position exposure
+    TOTAL_EXPOSURE_LIMIT    = 500.00     # absolute hard stop — bot stops trading at this total
     DAILY_LOSS_LIMIT        = 50.00      # bot shuts down if real losses hit this today
     MAX_BET_SIZE            = 15.00      # max single bet
     MIN_BET_SIZE            = 3.00       # min single bet
