@@ -139,6 +139,7 @@ class KalshiClient:
     BLACKLIST = {
         "KXCPI-26MAY-T-0.3",
         "KXCPI-26MAY-T-0.2",
+        "KXTSLA-26JULDELIV-460000.0",   # illiquid — consistently fails to fill
     }
 
     def _is_tradeable(self, market: dict) -> bool:
@@ -225,6 +226,11 @@ class KalshiClient:
         if dry_run:
             print(f"[PAPER] {side.upper()} {count} contracts @ ${price:.2f} = ${actual_cost:.2f} on {ticker}")
             return {"status": "paper", "ticker": ticker, "side": side, "count": count, "price": price, "cost_usd": actual_cost}
+        # Check live balance before attempting order
+        live_balance = self.get_balance()
+        if live_balance is not None and live_balance < actual_cost:
+            print(f"⚠️  Insufficient balance (${live_balance:.2f}) for order cost (${actual_cost:.2f}) — skipping")
+            return None
         path = "/portfolio/orders"
         ask_price = self._get_ask_price(ticker, side.lower(), price)
         yes_price_cents = int(ask_price * 100) if side.lower() == "yes" else int((1 - ask_price) * 100)
