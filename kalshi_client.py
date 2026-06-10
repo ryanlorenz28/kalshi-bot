@@ -181,6 +181,7 @@ class KalshiClient:
             return None
 
     def _get_ask_price(self, ticker: str, side: str, fallback: float) -> float:
+        """Fetch live ask price for a side, with buffer to ensure fills."""
         try:
             path = f"/markets/{ticker}"
             r = self.session.get(
@@ -191,13 +192,22 @@ class KalshiClient:
             if r.status_code == 200:
                 m = r.json().get("market", {})
                 if side == "yes":
-                    ask = m.get("yes_ask_dollars") or m.get("yes_ask") or fallback
+                    ask = m.get("yes_ask") or m.get("yes_ask_dollars") or fallback
+                    ask = float(ask)
+                    if ask > 1: ask /= 100
+                    # Add 3¢ buffer above ask to ensure fill
+                    return min(0.99, ask + 0.03)
                 else:
-                    ask = m.get("no_ask_dollars") or m.get("no_ask") or (1 - fallback)
-                ask = float(ask)
-                if ask > 1:
-                    ask /= 100
-                return min(0.99, ask + 0.02)
+                    # For NO side: no_ask = 1 - yes_bid (best available price to buy NO)
+                    yes_bid = m.get("yes_bid") or m.get("yes_bid_dollars")
+                    if yes_bid:
+                        yes_bid = float(yes_bid)
+                        if yes_bid > 1: yes_bid /= 100
+                        no_ask = 1 - yes_bid
+                    else:
+                        no_ask = 1 - fallback
+                    # Add 3¢ buffer to ensure fill
+                    return min(0.99, no_ask + 0.03)
         except Exception:
             pass
         return min(0.99, fallback + 0.05)
