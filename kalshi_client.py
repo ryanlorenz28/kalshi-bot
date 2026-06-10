@@ -62,7 +62,7 @@ class KalshiClient:
     def get_markets(self, limit=10):
         markets = []
         seen = set()
-        event_count = {}  # max 2 markets per event to avoid bucket spam
+        event_count = {}
 
         macro_tickers = [
             "KXBTC", "KXETH", "KXINX", "KXNDAQ", "KXDOW",
@@ -129,13 +129,11 @@ class KalshiClient:
         return markets[:limit] if markets else self._demo_markets()[:limit]
 
     BLACKLIST = {
-        "KXCPI-26MAY-T-0.3",   # illiquid — no asks available
-        "KXCPI-26MAY-T-0.2",   # illiquid — no asks available
+        "KXCPI-26MAY-T-0.3",
+        "KXCPI-26MAY-T-0.2",
     }
 
     def _is_tradeable(self, market: dict) -> bool:
-        """Filter out near-certain, near-impossible, expired, illiquid, blacklisted,
-        and far-future markets the bot cannot reliably analyze."""
         if market.get("id") in self.BLACKLIST:
             return False
         yes_price = market.get("outcomes", [{}])[0].get("price", 0.5)
@@ -144,11 +142,9 @@ class KalshiClient:
         days = market.get("days_to_resolve", 999)
         if days == 0:
             return False
-        # ── NEW: skip markets resolving more than 90 days out ──
-        # Prevents bot from trading 2027 contracts it can't analyze well
-        if days > 90:
+        # Only trade markets resolving within 45 days
+        if days > 45:
             return False
-        # Skip markets with very low volume — likely illiquid
         if market.get("volume", 0) < 500:
             return False
         return True
@@ -162,8 +158,10 @@ class KalshiClient:
             if yes_price <= 0 or yes_price >= 1: yes_price = 0.5
             ticker = raw.get("ticker", "unknown")
             return {
-                "id": ticker, "question": raw.get("title", "Unknown market"),
-                "description": raw.get("rules_primary", ""), "market_type": "binary",
+                "id": ticker,
+                "question": raw.get("title", "Unknown market"),
+                "description": raw.get("rules_primary", ""),
+                "market_type": "binary",
                 "outcomes": [{"name": "Yes", "price": yes_price}, {"name": "No", "price": round(1 - yes_price, 4)}],
                 "volume": float(raw.get("volume_fp", 0) or 0),
                 "liquidity": float(raw.get("liquidity_dollars", 0) or 0),
@@ -175,7 +173,6 @@ class KalshiClient:
             return None
 
     def _get_ask_price(self, ticker: str, side: str, fallback: float) -> float:
-        """Fetch the current ask price for a side so we can cross the spread."""
         try:
             path = f"/markets/{ticker}"
             r = self.session.get(
@@ -192,13 +189,12 @@ class KalshiClient:
                 ask = float(ask)
                 if ask > 1:
                     ask /= 100
-                # Add 2 cent buffer above ask to ensure fill
                 return min(0.99, ask + 0.02)
         except Exception:
             pass
         return min(0.99, fallback + 0.05)
 
-    # ORDERS
+    # ORDERS — BUY
     def place_order(self, ticker, side, amount_usd, price, dry_run=None):
         if dry_run is None: dry_run = self.config.PAPER_TRADING
         price = max(0.01, min(0.99, float(price)))
@@ -208,7 +204,6 @@ class KalshiClient:
             print(f"[PAPER] {side.upper()} {count} contracts @ ${price:.2f} = ${actual_cost:.2f} on {ticker}")
             return {"status": "paper", "ticker": ticker, "side": side, "count": count, "price": price, "cost_usd": actual_cost}
         path = "/portfolio/orders"
-        # Fetch the actual ask price for this market to ensure we cross the spread
         ask_price = self._get_ask_price(ticker, side.lower(), price)
         yes_price_cents = int(ask_price * 100) if side.lower() == "yes" else int((1 - ask_price) * 100)
         yes_price_cents = max(1, min(99, yes_price_cents))
@@ -229,7 +224,6 @@ class KalshiClient:
                 print(f"Payload was: {payload}")
                 return None
             result = r.json()
-            # Check if order actually filled - resting orders don't count
             order = result.get("order", result)
             status = order.get("status", "")
             filled = order.get("count_filled", 0) or order.get("fill_count", 0)
@@ -242,6 +236,49 @@ class KalshiClient:
         except Exception as e:
             print("Error placing order: " + str(e))
             return None
+
+    # ORDERS — SELL
+    def sell_position(self, ticker: str, side: str, count: int) -> bool:
+        """Sell/exit an existing position."""
+        if self.config.PAPER_TRADING:
+            print(f"[PAPER] SELL {count} contracts of {side} on {ticker}")
+            return True
+        path = "/portfolio/orders"
+        ask_price = self._get_ask_price(ticker, side.lower(), 0.5)
+        # Sell slightly below ask to ensure fill
+        sell_price = max(0.01, ask_price - 0.04)
+        yes_price_cents = int(sell_price * 100) if side.lower() == "yes" else int((1 - sell_price) * 100)
+        yes_price_cents = max(1, min(99, yes_price_cents))
+        payload = {
+            "ticker":          ticker,
+            "action":          "sell",
+            "side":            side.lower(),
+            "type":            "limit",
+            "count":           count,
+            "yes_price":       yes_price_cents,
+            "client_order_id": str(uuid.uuid4()),
+            "time_in_force":   "immediate_or_cancel",
+        }
+        try:
+            r = self.session.post(
+                self.BASE_URL + path,
+                headers=self._headers("POST", path),
+                json=payload,
+                timeout=15,
+            )
+            if not r.ok:
+                print(f"Error selling position ({r.status_code}): {r.text[:300]}")
+                return False
+            order = r.json().get("order", {})
+            filled = order.get("count_filled", 0) or order.get("fill_count", 0)
+            if filled > 0:
+                print(f"✅ Sold {filled} contracts of {side} on {ticker}")
+                return True
+            print(f"Sell order not filled for {ticker}")
+            return False
+        except Exception as e:
+            print(f"Error selling position: {e}")
+            return False
 
     def _days_until(self, date_str):
         if not date_str: return 999
