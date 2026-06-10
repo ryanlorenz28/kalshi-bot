@@ -105,6 +105,9 @@ def check_exit_positions(client, logger, config, state):
 
             entry_price = float(pos.get("entry_price", 0.5))
             contracts   = int(pos.get("contracts", 1))
+            # Skip profit/loss checks for positions loaded at startup with unknown entry price
+            if pos.get("reasoning") == "loaded from Kalshi on startup":
+                continue
             gain_pct    = (current_price - entry_price) / entry_price if entry_price > 0 else 0
             # Use live close_time for accurate days remaining
             try:
@@ -219,6 +222,10 @@ def run_cycle(client, analyzer, logger, config, state):
         )
 
         if not config.PAPER_TRADING:
+            # Hard total exposure limit
+            if state["real_money_spent"] >= config.TOTAL_EXPOSURE_LIMIT:
+                logger.info(Fore.RED + f"  🛑 Total exposure limit (${config.TOTAL_EXPOSURE_LIMIT:.0f}) reached — no new trades" + Style.RESET_ALL)
+                break
             remaining = real_money_remaining(state, config)
             if remaining <= 0:
                 bet_amount = config.bet_size(confidence, config.PAPER_STARTING_BALANCE)
@@ -229,9 +236,12 @@ def run_cycle(client, analyzer, logger, config, state):
                     f"Falling back to paper trade." + Style.RESET_ALL
                 )
             else:
+                # Use live Kalshi balance for bet sizing, not config limit
+                live_balance = client.get_balance() or remaining
                 bet_amount = min(
-                    config.bet_size(confidence, config.REAL_MONEY_LIMIT),
-                    remaining
+                    config.bet_size(confidence, live_balance),
+                    remaining,
+                    live_balance * 0.25,   # never bet more than 25% of available cash
                 )
                 use_real = True
         else:
