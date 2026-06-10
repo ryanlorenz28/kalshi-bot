@@ -58,6 +58,23 @@ class KalshiClient:
             print("Error fetching balance: " + str(e))
             return None
 
+    # EXISTING POSITIONS
+    def get_positions(self) -> list:
+        """Fetch all open positions from Kalshi portfolio."""
+        path = "/portfolio/positions"
+        try:
+            r = self.session.get(
+                self.BASE_URL + path,
+                headers=self._headers("GET", path),
+                params={"limit": 100},
+                timeout=15,
+            )
+            if r.status_code == 200:
+                return r.json().get("market_positions", [])
+        except Exception as e:
+            print(f"Error fetching positions: {e}")
+        return []
+
     # MARKETS
     def get_markets(self, limit=10):
         markets = []

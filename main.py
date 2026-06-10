@@ -326,6 +326,38 @@ def main():
         "last_reset_date":  date.today(),
     }
 
+    # ── Load existing Kalshi positions into state on startup ───
+    # This prevents the series cap from resetting on every redeploy
+    if not config.PAPER_TRADING:
+        existing = client.get_positions()
+        for pos in existing:
+            ticker = pos.get("ticker", "")
+            cost   = abs(float(pos.get("total_cost", 0) or 0)) / 100
+            side   = "Yes" if (pos.get("position", 0) or 0) > 0 else "No"
+            if ticker and cost > 0:
+                state["open_positions"][ticker] = {
+                    "mode":       "LIVE",
+                    "series":     ticker.split("-")[0],
+                    "market_id":  ticker,
+                    "outcome":    side,
+                    "cost_usd":   cost,
+                    "contracts":  abs(pos.get("position", 0) or 0),
+                    "entry_price": 0.5,
+                    "question":   ticker,
+                    "reasoning":  "loaded from Kalshi on startup",
+                    "key_risks":  "",
+                    "edge":       0,
+                    "ai_confidence": 0,
+                    "ai_probability": 0.5,
+                    "timestamp":  datetime.now().isoformat(),
+                    "status":     "open",
+                }
+                state["real_money_spent"] += cost
+        if existing:
+            logger.info(f"📂 Loaded {len(existing)} existing positions from Kalshi (${state['real_money_spent']:.2f} spent)")
+        else:
+            logger.info("📂 No existing positions found on Kalshi")
+
     # ── Start status server for the dashboard ──────────────────
     status_server.start(state, client, config)
 
