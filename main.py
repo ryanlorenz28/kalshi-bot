@@ -347,10 +347,26 @@ def main():
     # This prevents the series cap from resetting on every redeploy
     if not config.PAPER_TRADING:
         existing = client.get_positions()
+        if existing:
+            # Log first position's raw fields so we can verify cost field name
+            logger.info(f"🔍 Sample position fields: {list(existing[0].keys())}")
         for pos in existing:
             ticker = pos.get("ticker", "")
-            cost   = abs(float(pos.get("total_cost", 0) or 0)) / 100
-            side   = "Yes" if (pos.get("position", 0) or 0) > 0 else "No"
+            # Kalshi returns cost in cents under several possible field names
+            raw_cost = (
+                pos.get("total_cost") or
+                pos.get("market_exposure") or
+                pos.get("total_traded_cost") or
+                pos.get("cost") or 0
+            )
+            cost = abs(float(raw_cost or 0)) / 100
+            # If cost is still 0, estimate from position size and avg price
+            if cost == 0:
+                contracts = abs(pos.get("position", 0) or 0)
+                avg_price = abs(float(pos.get("average_price", 0) or pos.get("avg_price", 0) or 50)) / 100
+                if avg_price > 1: avg_price /= 100
+                cost = round(contracts * avg_price, 2)
+            side = "Yes" if (pos.get("position", 0) or 0) > 0 else "No"
             if ticker and cost > 0:
                 # Fetch live market data to get accurate days_to_resolve
                 days = 999
