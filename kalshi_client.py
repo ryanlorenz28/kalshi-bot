@@ -140,6 +140,8 @@ class KalshiClient:
         "KXCPI-26MAY-T-0.3",
         "KXCPI-26MAY-T-0.2",
         "KXTSLA-26JULDELIV-460000.0",   # illiquid — consistently fails to fill
+        "KXTSLA-26JULPROD-460000.0",    # illiquid — consistently fails to fill
+        "KXTSLA-26JULDELIV-450000.0",   # illiquid — consistently fails to fill
     }
 
     def _is_tradeable(self, market: dict) -> bool:
@@ -257,6 +259,9 @@ class KalshiClient:
             filled = order.get("count_filled", 0) or order.get("fill_count", 0)
             if status in ("canceled", "cancelled") or filled == 0:
                 print(f"Order not filled (status={status}, filled={filled}) — treating as no trade")
+                # Auto-blacklist tickers that fail to fill — likely illiquid
+                self.BLACKLIST.add(ticker)
+                print(f"⚠️  Auto-blacklisted {ticker} due to zero fill")
                 return None
             result["cost_usd"] = actual_cost
             result["count"] = count
