@@ -134,13 +134,19 @@ class KalshiClient:
     }
 
     def _is_tradeable(self, market: dict) -> bool:
-        """Filter out near-certain, near-impossible, expired, illiquid, and blacklisted markets."""
+        """Filter out near-certain, near-impossible, expired, illiquid, blacklisted,
+        and far-future markets the bot cannot reliably analyze."""
         if market.get("id") in self.BLACKLIST:
             return False
         yes_price = market.get("outcomes", [{}])[0].get("price", 0.5)
         if yes_price < 0.05 or yes_price > 0.95:
             return False
-        if market.get("days_to_resolve", 999) == 0:
+        days = market.get("days_to_resolve", 999)
+        if days == 0:
+            return False
+        # ── NEW: skip markets resolving more than 90 days out ──
+        # Prevents bot from trading 2027 contracts it can't analyze well
+        if days > 90:
             return False
         # Skip markets with very low volume — likely illiquid
         if market.get("volume", 0) < 500:
