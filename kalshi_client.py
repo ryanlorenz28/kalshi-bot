@@ -126,7 +126,15 @@ class KalshiClient:
                 print("Error fetching general markets: " + str(e))
 
         print(f"Found {len(markets)} tradeable markets")
-        return markets[:limit] if markets else self._demo_markets()[:limit]
+
+        # IMPORTANT: never fall back to demo markets in live mode
+        if not markets:
+            if not self.config.PAPER_TRADING:
+                print("⚠️  No real markets found — bot will wait for next cycle")
+                return []
+            return self._demo_markets()[:limit]
+
+        return markets[:limit]
 
     BLACKLIST = {
         "KXCPI-26MAY-T-0.3",
@@ -142,8 +150,8 @@ class KalshiClient:
         days = market.get("days_to_resolve", 999)
         if days == 0:
             return False
-        # Only trade markets resolving within 45 days
-        if days > 45:
+        # Skip markets resolving more than 90 days out
+        if days > 90:
             return False
         if market.get("volume", 0) < 500:
             return False
@@ -197,6 +205,10 @@ class KalshiClient:
     # ORDERS — BUY
     def place_order(self, ticker, side, amount_usd, price, dry_run=None):
         if dry_run is None: dry_run = self.config.PAPER_TRADING
+        # Safety: never place live orders on demo tickers
+        if ticker.startswith("DEMO-"):
+            print(f"⚠️  Blocked live order on demo ticker {ticker}")
+            return None
         price = max(0.01, min(0.99, float(price)))
         count = max(1, int(amount_usd / price))
         actual_cost = round(count * price, 2)
@@ -243,9 +255,11 @@ class KalshiClient:
         if self.config.PAPER_TRADING:
             print(f"[PAPER] SELL {count} contracts of {side} on {ticker}")
             return True
+        if ticker.startswith("DEMO-"):
+            print(f"⚠️  Blocked sell on demo ticker {ticker}")
+            return False
         path = "/portfolio/orders"
         ask_price = self._get_ask_price(ticker, side.lower(), 0.5)
-        # Sell slightly below ask to ensure fill
         sell_price = max(0.01, ask_price - 0.04)
         yes_price_cents = int(sell_price * 100) if side.lower() == "yes" else int((1 - sell_price) * 100)
         yes_price_cents = max(1, min(99, yes_price_cents))
