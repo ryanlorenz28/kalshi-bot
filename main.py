@@ -108,8 +108,8 @@ def check_exit_positions(client, logger, config, state):
             gain_pct    = (current_price - entry_price) / entry_price if entry_price > 0 else 0
             days_left   = pos.get("days_to_resolve", 999)
 
-            # Take profit: position up 40%+ and trading above 80¢
-            if gain_pct >= 0.40 and current_price >= 0.80:
+            # Take profit: position up TAKE_PROFIT_PCT and trading above 80¢
+            if gain_pct >= config.TAKE_PROFIT_PCT and current_price >= 0.80:
                 logger.info(
                     Fore.GREEN +
                     f"  💰 TAKE PROFIT: {market_id} up {gain_pct:.0%} "
@@ -123,8 +123,8 @@ def check_exit_positions(client, logger, config, state):
                     to_remove.append(market_id)
                     logger.info(f"  ✅ Exited {market_id} for ~${profit:.2f} profit")
 
-            # Stop loss: down 50%+ with fewer than 10 days left — cut losses
-            elif gain_pct <= -0.50 and days_left < 10:
+            # Stop loss: down STOP_LOSS_PCT with fewer than 10 days left — cut losses
+            elif gain_pct <= -config.STOP_LOSS_PCT and days_left < 10:
                 logger.info(
                     Fore.RED +
                     f"  🛑 STOP LOSS: {market_id} down {abs(gain_pct):.0%} "
