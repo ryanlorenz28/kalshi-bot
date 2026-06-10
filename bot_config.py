@@ -26,7 +26,7 @@ class BotConfig:
     REAL_MONEY_LIMIT       = 150.00      # hard cap on total real-money spend
     DAILY_LOSS_LIMIT       = 50.00       # bot shuts down if real losses hit this today
     MAX_BET_SIZE           = 15.00       # tightened for live start (was $25)
-    MIN_BET_SIZE           = 5.00
+    MIN_BET_SIZE           = 3.00
 
     # ─── SCANNING ─────────────────────────────────────────────
     MARKETS_TO_SCAN        = 10
