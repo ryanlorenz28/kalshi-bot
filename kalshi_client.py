@@ -279,6 +279,12 @@ class KalshiClient:
                 # Auto-blacklist tickers that fail to fill — likely illiquid
                 self.BLACKLIST.add(ticker)
                 print(f"⚠️  Auto-blacklisted {ticker} due to zero fill")
+                # Persist to file so blacklist survives restarts
+                try:
+                    with open("auto_blacklist.txt", "a") as f:
+                        f.write(ticker + "\n")
+                except Exception:
+                    pass
                 return None
             result["cost_usd"] = actual_cost
             result["count"] = count

@@ -106,7 +106,14 @@ def check_exit_positions(client, logger, config, state):
             entry_price = float(pos.get("entry_price", 0.5))
             contracts   = int(pos.get("contracts", 1))
             gain_pct    = (current_price - entry_price) / entry_price if entry_price > 0 else 0
-            days_left   = pos.get("days_to_resolve", 999)
+            # Use live close_time for accurate days remaining
+            try:
+                close_time = m.get("close_time", "")
+                from datetime import timezone as tz
+                end = datetime.fromisoformat(close_time.replace("Z", "+00:00"))
+                days_left = max(0, (end - datetime.now(tz.utc)).days)
+            except Exception:
+                days_left = pos.get("days_to_resolve", 999)
 
             # Take profit: position up TAKE_PROFIT_PCT and trading above 80¢
             if gain_pct >= config.TAKE_PROFIT_PCT and current_price >= 0.80:
@@ -335,28 +342,53 @@ def main():
             cost   = abs(float(pos.get("total_cost", 0) or 0)) / 100
             side   = "Yes" if (pos.get("position", 0) or 0) > 0 else "No"
             if ticker and cost > 0:
+                # Fetch live market data to get accurate days_to_resolve
+                days = 999
+                try:
+                    path = f"/markets/{ticker}"
+                    r = client.session.get(
+                        client.BASE_URL + path,
+                        headers=client._headers("GET", path),
+                        timeout=10,
+                    )
+                    if r.status_code == 200:
+                        close_time = r.json().get("market", {}).get("close_time", "")
+                        days = client._days_until(close_time)
+                except Exception:
+                    pass
                 state["open_positions"][ticker] = {
-                    "mode":       "LIVE",
-                    "series":     ticker.split("-")[0],
-                    "market_id":  ticker,
-                    "outcome":    side,
-                    "cost_usd":   cost,
-                    "contracts":  abs(pos.get("position", 0) or 0),
-                    "entry_price": 0.5,
-                    "question":   ticker,
-                    "reasoning":  "loaded from Kalshi on startup",
-                    "key_risks":  "",
-                    "edge":       0,
-                    "ai_confidence": 0,
-                    "ai_probability": 0.5,
-                    "timestamp":  datetime.now().isoformat(),
-                    "status":     "open",
+                    "mode":            "LIVE",
+                    "series":          ticker.split("-")[0],
+                    "market_id":       ticker,
+                    "outcome":         side,
+                    "cost_usd":        cost,
+                    "contracts":       abs(pos.get("position", 0) or 0),
+                    "entry_price":     0.5,
+                    "days_to_resolve": days,
+                    "question":        ticker,
+                    "reasoning":       "loaded from Kalshi on startup",
+                    "key_risks":       "",
+                    "edge":            0,
+                    "ai_confidence":   0,
+                    "ai_probability":  0.5,
+                    "timestamp":       datetime.now().isoformat(),
+                    "status":          "open",
                 }
                 state["real_money_spent"] += cost
         if existing:
             logger.info(f"📂 Loaded {len(existing)} existing positions from Kalshi (${state['real_money_spent']:.2f} spent)")
         else:
             logger.info("📂 No existing positions found on Kalshi")
+
+    # ── Load persisted auto-blacklist ──────────────────────────
+    blacklist_file = "auto_blacklist.txt"
+    if os.path.exists(blacklist_file):
+        with open(blacklist_file) as f:
+            for line in f:
+                ticker = line.strip()
+                if ticker:
+                    client.BLACKLIST.add(ticker)
+        logger.info(f"📋 Loaded {len(client.BLACKLIST)} blacklisted tickers")
 
     # ── Start status server for the dashboard ──────────────────
     status_server.start(state, client, config)
