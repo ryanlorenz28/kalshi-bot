@@ -71,6 +71,78 @@ def real_money_remaining(state, config) -> float:
     return max(0.0, config.REAL_MONEY_LIMIT - state["real_money_spent"])
 
 
+def check_exit_positions(client, logger, config, state):
+    """Exit positions that have moved strongly in our favor (lock in profit)
+    or are deep losers near expiry (stop loss)."""
+    if config.PAPER_TRADING:
+        return
+
+    to_remove = []
+    for market_id, pos in state["open_positions"].items():
+        if pos.get("mode") != "LIVE":
+            continue
+        try:
+            path = f"/markets/{market_id}"
+            r = client.session.get(
+                client.BASE_URL + path,
+                headers=client._headers("GET", path),
+                timeout=10,
+            )
+            if r.status_code != 200:
+                continue
+            m = r.json().get("market", {})
+
+            side = pos.get("outcome", "Yes").lower()
+            if side == "yes":
+                current_price = float(m.get("yes_bid_dollars") or m.get("last_price_dollars") or 0)
+            else:
+                current_price = float(m.get("no_bid_dollars") or 0)
+                if current_price == 0:
+                    yes_price = float(m.get("yes_ask_dollars") or 0.5)
+                    current_price = 1 - yes_price
+            if current_price > 1:
+                current_price /= 100
+
+            entry_price = float(pos.get("entry_price", 0.5))
+            contracts   = int(pos.get("contracts", 1))
+            gain_pct    = (current_price - entry_price) / entry_price if entry_price > 0 else 0
+            days_left   = pos.get("days_to_resolve", 999)
+
+            # Take profit: position up 40%+ and trading above 80¢
+            if gain_pct >= 0.40 and current_price >= 0.80:
+                logger.info(
+                    Fore.GREEN +
+                    f"  💰 TAKE PROFIT: {market_id} up {gain_pct:.0%} "
+                    f"(entry {entry_price:.2f} → now {current_price:.2f})"
+                    + Style.RESET_ALL
+                )
+                success = client.sell_position(market_id, side, contracts)
+                if success:
+                    profit = (current_price - entry_price) * contracts
+                    state["real_money_spent"] = max(0, state["real_money_spent"] - pos.get("cost_usd", 0))
+                    to_remove.append(market_id)
+                    logger.info(f"  ✅ Exited {market_id} for ~${profit:.2f} profit")
+
+            # Stop loss: down 50%+ with fewer than 10 days left — cut losses
+            elif gain_pct <= -0.50 and days_left < 10:
+                logger.info(
+                    Fore.RED +
+                    f"  🛑 STOP LOSS: {market_id} down {abs(gain_pct):.0%} "
+                    f"with {days_left} days left — exiting"
+                    + Style.RESET_ALL
+                )
+                success = client.sell_position(market_id, side, contracts)
+                if success:
+                    to_remove.append(market_id)
+
+        except Exception as e:
+            logger.error(f"Error checking exit for {market_id}: {e}")
+
+    for market_id in to_remove:
+        state["open_positions"].pop(market_id, None)
+        logger.info(f"  🗑️  Removed {market_id} from open positions")
+
+
 def run_cycle(client, analyzer, logger, config, state):
     reset_daily_state_if_new_day(state)
 
@@ -79,6 +151,9 @@ def run_cycle(client, analyzer, logger, config, state):
 
     logger.info("=" * 55)
     logger.info("🔄 Starting new trading cycle...")
+
+    # Check if any existing positions should be exited
+    check_exit_positions(client, logger, config, state)
 
     if not config.PAPER_TRADING:
         remaining = real_money_remaining(state, config)
@@ -107,7 +182,6 @@ def run_cycle(client, analyzer, logger, config, state):
             continue
 
         # Use ticker prefix as series key (e.g. "KXGDP" from "KXGDP-26Q2-T2")
-        # This correctly groups all GDP markets together, all FED markets together, etc.
         series = market["id"].split("-")[0]
         series_spent = sum(
             t.get("cost_usd", 0) for t in state["open_positions"].values()
@@ -193,7 +267,7 @@ def run_cycle(client, analyzer, logger, config, state):
         trade_record = {
             "timestamp":      datetime.now().isoformat(),
             "mode":           trade_mode,
-            "series":         market["id"].split("-")[0],   # FIX: use ticker prefix, not category
+            "series":         market["id"].split("-")[0],
             "market_id":      market["id"],
             "question":       market["question"],
             "outcome":        outcome,
