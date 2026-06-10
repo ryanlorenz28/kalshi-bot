@@ -355,7 +355,7 @@ EDGE: your probability minus market price as decimal
 REASONING: one paragraph explaining your probability estimate and why the crowd may be wrong
 KEY_RISKS: one sentence on the biggest risk to this trade
 
-Only recommend YES or NO if you have at least 6% edge AND 60%+ confidence AND a specific reason the crowd is wrong."""
+Only recommend YES or NO if you have at least 5% edge AND 60%+ confidence AND a specific reason the crowd is wrong."""
 
         return prompt
 
@@ -483,10 +483,10 @@ Only recommend YES or NO if you have at least 6% edge AND 60%+ confidence AND a 
                     "should_trade": False,
                     "reason": f"Market price {yes_price:.1%} is near limit — crowd is almost certainly correct"}
 
-        if abs(result["edge"]) < 0.06:
+        if abs(result["edge"]) < self.config.MIN_EDGE_TO_TRADE:
             return {**result,
                     "should_trade": False,
-                    "reason": f"Edge {abs(result['edge']):.1%} is below 6% minimum threshold"}
+                    "reason": f"Edge {abs(result['edge']):.1%} is below {self.config.MIN_EDGE_TO_TRADE:.0%} minimum threshold"}
 
         if result["confidence"] < self.config.MIN_CONFIDENCE_TO_TRADE:
             return {**result,
