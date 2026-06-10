@@ -105,9 +105,6 @@ def check_exit_positions(client, logger, config, state):
 
             entry_price = float(pos.get("entry_price", 0.5))
             contracts   = int(pos.get("contracts", 1))
-            # Skip profit/loss checks for positions loaded at startup with unknown entry price
-            if pos.get("reasoning") == "loaded from Kalshi on startup":
-                continue
             gain_pct    = (current_price - entry_price) / entry_price if entry_price > 0 else 0
             # Use live close_time for accurate days remaining
             try:
@@ -367,8 +364,9 @@ def main():
             side = "Yes" if float(pos.get("position_fp", 0) or 0) > 0 else "No"
             contracts = abs(int(float(pos.get("position_fp", 0) or 0)))
             if ticker and cost > 0:
-                # Fetch live market data to get accurate days_to_resolve
+                # Fetch live market data to get accurate days_to_resolve and entry price
                 days = 999
+                entry_price = 0.5  # fallback
                 try:
                     path = f"/markets/{ticker}"
                     r = client.session.get(
@@ -377,8 +375,14 @@ def main():
                         timeout=10,
                     )
                     if r.status_code == 200:
-                        close_time = r.json().get("market", {}).get("close_time", "")
+                        mkt = r.json().get("market", {})
+                        close_time = mkt.get("close_time", "")
                         days = client._days_until(close_time)
+                        # Calculate real entry price from total cost / contracts
+                        if contracts > 0 and cost > 0:
+                            entry_price = round(cost / contracts, 4)
+                            # Clamp to valid range
+                            entry_price = max(0.01, min(0.99, entry_price))
                 except Exception:
                     pass
                 state["open_positions"][ticker] = {
@@ -388,7 +392,7 @@ def main():
                     "outcome":         side,
                     "cost_usd":        cost,
                     "contracts":       contracts,
-                    "entry_price":     0.5,
+                    "entry_price":     entry_price,
                     "days_to_resolve": days,
                     "question":        ticker,
                     "reasoning":       "loaded from Kalshi on startup",
