@@ -262,14 +262,25 @@ def run_cycle(client, analyzer, logger, config, state):
         trade_mode  = "LIVE" if use_real else "PAPER"
         color       = Fore.GREEN if use_real else Fore.CYAN
 
+        # analysis["my_probability"] and analysis["edge"] are always expressed
+        # relative to YES (per the AI prompt: "your probability minus market
+        # price"). When the trade is on NO, flip both so the log reflects the
+        # side actually being bought instead of comparing mismatched sides.
+        if outcome == "Yes":
+            side_probability = analysis["my_probability"]
+            side_edge        = analysis["edge"]
+        else:
+            side_probability = 1 - analysis["my_probability"]
+            side_edge        = -analysis["edge"]
+
         logger.info(
             color +
             f"\n  ✅ {trade_mode} TRADE PLACED\n"
             f"     Market:    {market['question'][:55]}\n"
             f"     Bet:       BUY '{outcome}'  x{order_result.get('count', '?')} contracts\n"
             f"     Cost:      ${actual_cost:.2f} @ {entry_price:.3f}\n"
-            f"     AI says:   {analysis['my_probability']:.0%} true prob vs {entry_price:.0%} market\n"
-            f"     Edge:      {analysis['edge']:+.1%}\n"
+            f"     AI says:   {side_probability:.0%} true prob vs {entry_price:.0%} market\n"
+            f"     Edge:      {side_edge:+.1%}\n"
             f"     Reasoning: {analysis['reasoning'][:100]}"
             + Style.RESET_ALL
         )
