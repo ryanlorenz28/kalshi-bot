@@ -75,6 +75,17 @@ class KalshiClient:
             print(f"Error fetching positions: {e}")
         return []
 
+    # Prefixes for multivariate/parlay-style combo markets that bundle several
+    # outcomes into one ticker (e.g. sports parlays). These aren't single
+    # binary questions the AI can price sanely, so they're excluded outright —
+    # this is a belt-and-suspenders check on top of the targeted macro-series
+    # fetch, since the "fill remaining from default feed" fallback below has
+    # no series filter and can otherwise let one slip through.
+    COMBO_TICKER_PREFIXES = ("KXMVE",)
+
+    def _is_combo_ticker(self, ticker: str) -> bool:
+        return any(ticker.startswith(p) for p in self.COMBO_TICKER_PREFIXES)
+
     # MARKETS
     def get_markets(self, limit=10):
         markets = []
@@ -104,6 +115,8 @@ class KalshiClient:
                         event = m.get("event_ticker", series)
                         if ticker in seen:
                             continue
+                        if self._is_combo_ticker(ticker):
+                            continue
                         if event_count.get(event, 0) >= 2:
                             continue
                         norm = self._normalize(m)
@@ -129,6 +142,8 @@ class KalshiClient:
                         ticker = m.get("ticker", "")
                         event = m.get("event_ticker", "")
                         if ticker in seen:
+                            continue
+                        if self._is_combo_ticker(ticker):
                             continue
                         if event_count.get(event, 0) >= 2:
                             continue
