@@ -232,6 +232,39 @@ class KalshiClient:
             pass
         return min(0.99, fallback + 0.05)
 
+    # ORDERS — V2 helpers
+    # Kalshi's legacy /portfolio/orders endpoint (side=yes/no, action=buy/sell,
+    # yes_price in cents) was deprecated and now returns 410. The new
+    # /portfolio/events/orders endpoint only knows about the YES leg:
+    #   bid = buy YES, ask = sell YES (selling YES == buying NO at 1-price).
+    # This helper maps our yes/no + buy/sell semantics onto that book side.
+    def _to_book_order(self, side: str, action: str, quoted_price: float):
+        is_yes = side.lower() == "yes"
+        is_buy = action.lower() == "buy"
+        book_side = "bid" if (is_yes == is_buy) else "ask"
+        book_price = quoted_price if is_yes else (1 - quoted_price)
+        book_price = max(0.01, min(0.99, book_price))
+        return book_side, book_price
+
+    def _submit_order_v2(self, ticker: str, book_side: str, count: float, book_price: float):
+        path = "/portfolio/events/orders"
+        payload = {
+            "ticker":                    ticker,
+            "client_order_id":           str(uuid.uuid4()),
+            "side":                      book_side,
+            "count":                     f"{count:.2f}",
+            "price":                     f"{book_price:.4f}",
+            "time_in_force":             "immediate_or_cancel",
+            "self_trade_prevention_type": "taker_at_cross",
+            "post_only":                 False,
+            "cancel_order_on_pause":     False,
+            "reduce_only":               False,
+            "subaccount":                0,
+            "exchange_index":            0,
+        }
+        r = self.session.post(self.BASE_URL + path, headers=self._headers("POST", path), json=payload, timeout=15)
+        return r, payload
+
     # ORDERS — BUY
     def place_order(self, ticker, side, amount_usd, price, dry_run=None):
         if dry_run is None: dry_run = self.config.PAPER_TRADING
@@ -250,32 +283,18 @@ class KalshiClient:
         if live_balance is not None and live_balance < actual_cost:
             print(f"⚠️  Insufficient balance (${live_balance:.2f}) for order cost (${actual_cost:.2f}) — skipping")
             return None
-        path = "/portfolio/orders"
-        ask_price = self._get_ask_price(ticker, side.lower(), price)
-        yes_price_cents = int(ask_price * 100) if side.lower() == "yes" else int((1 - ask_price) * 100)
-        yes_price_cents = max(1, min(99, yes_price_cents))
-        payload = {
-            "ticker":          ticker,
-            "action":          "buy",
-            "side":            side.lower(),
-            "type":            "limit",
-            "count":           count,
-            "yes_price":       yes_price_cents,
-            "client_order_id": str(uuid.uuid4()),
-            "time_in_force":   "immediate_or_cancel",
-        }
+        quoted_price = self._get_ask_price(ticker, side.lower(), price)
+        book_side, book_price = self._to_book_order(side, "buy", quoted_price)
         try:
-            r = self.session.post(self.BASE_URL + path, headers=self._headers("POST", path), json=payload, timeout=15)
+            r, payload = self._submit_order_v2(ticker, book_side, count, book_price)
             if not r.ok:
                 print(f"Error placing order ({r.status_code}): {r.text[:300]}")
                 print(f"Payload was: {payload}")
                 return None
-            result = r.json()
-            order = result.get("order", result)
-            status = order.get("status", "")
-            filled = order.get("count_filled", 0) or order.get("fill_count", 0)
-            if status in ("canceled", "cancelled") or filled == 0:
-                print(f"Order not filled (status={status}, filled={filled}) — treating as no trade")
+            order = r.json()
+            filled = float(order.get("fill_count", "0") or "0")
+            if filled <= 0:
+                print(f"Order not filled (fill_count={filled}) — treating as no trade")
                 # Auto-blacklist tickers that fail to fill — likely illiquid
                 self.BLACKLIST.add(ticker)
                 print(f"⚠️  Auto-blacklisted {ticker} due to zero fill")
@@ -286,9 +305,9 @@ class KalshiClient:
                 except Exception:
                     pass
                 return None
-            result["cost_usd"] = actual_cost
-            result["count"] = count
-            return result
+            order["cost_usd"] = actual_cost
+            order["count"] = count
+            return order
         except Exception as e:
             print("Error placing order: " + str(e))
             return None
@@ -302,33 +321,16 @@ class KalshiClient:
         if ticker.startswith("DEMO-"):
             print(f"⚠️  Blocked sell on demo ticker {ticker}")
             return False
-        path = "/portfolio/orders"
-        ask_price = self._get_ask_price(ticker, side.lower(), 0.5)
-        sell_price = max(0.01, ask_price - 0.04)
-        yes_price_cents = int(sell_price * 100) if side.lower() == "yes" else int((1 - sell_price) * 100)
-        yes_price_cents = max(1, min(99, yes_price_cents))
-        payload = {
-            "ticker":          ticker,
-            "action":          "sell",
-            "side":            side.lower(),
-            "type":            "limit",
-            "count":           count,
-            "yes_price":       yes_price_cents,
-            "client_order_id": str(uuid.uuid4()),
-            "time_in_force":   "immediate_or_cancel",
-        }
+        quoted_price = self._get_ask_price(ticker, side.lower(), 0.5)
+        sell_price = max(0.01, quoted_price - 0.04)
+        book_side, book_price = self._to_book_order(side, "sell", sell_price)
         try:
-            r = self.session.post(
-                self.BASE_URL + path,
-                headers=self._headers("POST", path),
-                json=payload,
-                timeout=15,
-            )
+            r, payload = self._submit_order_v2(ticker, book_side, count, book_price)
             if not r.ok:
                 print(f"Error selling position ({r.status_code}): {r.text[:300]}")
                 return False
-            order = r.json().get("order", {})
-            filled = order.get("count_filled", 0) or order.get("fill_count", 0)
+            order = r.json()
+            filled = float(order.get("fill_count", "0") or "0")
             if filled > 0:
                 print(f"✅ Sold {filled} contracts of {side} on {ticker}")
                 return True
