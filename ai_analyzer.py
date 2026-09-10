@@ -122,48 +122,137 @@ class AIAnalyzer:
         except Exception:
             pass
 
-        # Fallback: hardcode known recent values
+        # Fallback if FRED is unreachable this cycle
         return {
-            "label": "Recent CPI context",
-            "data": "Q1 2026 CPI running elevated; May 2026 data pending release ~June 11",
-            "note": "Check if market threshold aligns with recent monthly trend of ~0.2-0.4% MoM"
+            "label": "CPI data",
+            "data": "Live CPI data unavailable this cycle.",
+            "note": "No reliable current reading — weight the market price heavily and require a strong independent reason to disagree."
         }
 
     def _get_gdp_data(self) -> dict:
-        """Return current GDPNow and recent GDP data."""
+        """Fetch the most recent real GDP growth reading from FRED.
+        Note: Atlanta Fed's GDPNow (an intra-quarter running estimate) has no
+        free public API, so this uses the last officially released GDP print
+        instead. It will lag the current quarter — the AI is told this
+        explicitly so it doesn't overweight it as if it were today's number."""
+        try:
+            resp = requests.get(
+                "https://api.stlouisfed.org/fred/series/observations",
+                params={
+                    "series_id": "A191RL1Q225SBEA",  # real GDP, % change, annualized
+                    "api_key": "c8c86c85cf4040aba6c4f21a0aabc4f3",  # public demo key
+                    "file_type": "json",
+                    "limit": 2,
+                    "sort_order": "desc",
+                },
+                timeout=8,
+            )
+            if resp.status_code == 200:
+                obs = resp.json().get("observations", [])
+                if obs:
+                    readings = [f"{o['date']}: {o['value']}% annualized" for o in obs]
+                    return {
+                        "label": "Latest released real GDP growth (FRED, quarterly)",
+                        "data": " | ".join(readings),
+                        "note": ("This is the last OFFICIALLY RELEASED quarter, not a live "
+                                 "intra-quarter tracker — it will lag the market's current quarter "
+                                 "by one or more releases. Do not treat it as today's running estimate; "
+                                 "use it only as a recent-trend anchor and weight the market price "
+                                 "accordingly if this data is old relative to the question's period.")
+                    }
+        except Exception:
+            pass
         return {
-            "label": "GDP live data",
-            "data": (
-                "Q1 2026 GDP (2nd estimate): +1.6% annualized. "
-                "Atlanta Fed GDPNow Q2 2026 estimate as of June 1: ~2.9% annualized. "
-                "Blue Chip consensus for Q2 2026: ~2.2-2.4%."
-            ),
-            "note": "GDPNow is a real-time running estimate — compare to market threshold carefully"
+            "label": "GDP data",
+            "data": "Live GDP data unavailable this cycle.",
+            "note": "No reliable current reading — weight the market price heavily and require a strong independent reason to disagree."
         }
 
     def _get_fed_data(self) -> dict:
-        """Return current Fed funds rate and meeting schedule."""
+        """Fetch the current Fed funds target range from FRED."""
+        try:
+            resp = requests.get(
+                "https://api.stlouisfed.org/fred/series/observations",
+                params={
+                    "series_id": "DFEDTARU",  # upper bound of fed funds target range
+                    "api_key": "c8c86c85cf4040aba6c4f21a0aabc4f3",  # public demo key
+                    "file_type": "json",
+                    "limit": 1,
+                    "sort_order": "desc",
+                },
+                timeout=8,
+            )
+            upper = None
+            as_of = None
+            if resp.status_code == 200:
+                obs = resp.json().get("observations", [])
+                if obs:
+                    upper = obs[0]["value"]
+                    as_of = obs[0]["date"]
+            if upper:
+                return {
+                    "label": "Federal Reserve data (FRED, upper bound of target range)",
+                    "data": f"Fed funds target upper bound as of {as_of}: {upper}%",
+                    "note": ("This reflects the rate as of the FRED observation date above, not "
+                             "necessarily today — check whether an FOMC meeting has occurred since "
+                             "then before assuming the rate is unchanged. Compare directly to the "
+                             "market's threshold.")
+                }
+        except Exception:
+            pass
         return {
             "label": "Federal Reserve data",
-            "data": (
-                "Current Fed funds rate: 3.50-3.75% (held at April 29 meeting). "
-                "Next FOMC meeting: June 16-17, 2026. "
-                "CME FedWatch: ~89% chance of hold at June meeting. "
-                "Fed dot plot projects one more cut in 2026."
-            ),
-            "note": "Rate is at 3.75% upper bound — use this to evaluate above/below threshold questions"
+            "data": "Live Fed rate data unavailable this cycle.",
+            "note": "No reliable current reading — weight the market price heavily and require a strong independent reason to disagree."
         }
 
     def _get_jobs_data(self) -> dict:
-        """Return recent jobs data."""
+        """Fetch the latest unemployment rate and nonfarm payrolls from FRED."""
+        try:
+            unrate_resp = requests.get(
+                "https://api.stlouisfed.org/fred/series/observations",
+                params={
+                    "series_id": "UNRATE",
+                    "api_key": "c8c86c85cf4040aba6c4f21a0aabc4f3",  # public demo key
+                    "file_type": "json",
+                    "limit": 1,
+                    "sort_order": "desc",
+                },
+                timeout=8,
+            )
+            payems_resp = requests.get(
+                "https://api.stlouisfed.org/fred/series/observations",
+                params={
+                    "series_id": "PAYEMS",
+                    "api_key": "c8c86c85cf4040aba6c4f21a0aabc4f3",  # public demo key
+                    "file_type": "json",
+                    "limit": 2,
+                    "sort_order": "desc",
+                },
+                timeout=8,
+            )
+            parts = []
+            if unrate_resp.status_code == 200:
+                obs = unrate_resp.json().get("observations", [])
+                if obs:
+                    parts.append(f"Unemployment rate as of {obs[0]['date']}: {obs[0]['value']}%")
+            if payems_resp.status_code == 200:
+                obs = payems_resp.json().get("observations", [])
+                if len(obs) >= 2:
+                    change_k = (float(obs[0]["value"]) - float(obs[1]["value"])) * 1  # PAYEMS is already in thousands
+                    parts.append(f"Nonfarm payrolls change ({obs[1]['date']}→{obs[0]['date']}): {change_k:+.0f}k")
+            if parts:
+                return {
+                    "label": "Jobs/unemployment data (FRED)",
+                    "data": " | ".join(parts),
+                    "note": "Compare market threshold to this trend — these are the two headline monthly figures."
+                }
+        except Exception:
+            pass
         return {
             "label": "Jobs/unemployment data",
-            "data": (
-                "Recent job gains averaging ~75,000/month in 2026 (down from 167k in 2024). "
-                "Unemployment rate: ~4.5-4.8% range in early 2026. "
-                "Labor market slowing but not collapsing."
-            ),
-            "note": "Compare market threshold to current trend carefully"
+            "data": "Live jobs data unavailable this cycle.",
+            "note": "No reliable current reading — weight the market price heavily and require a strong independent reason to disagree."
         }
 
     def _get_crypto_price(self, coin: str) -> dict:
@@ -188,17 +277,19 @@ class AIAnalyzer:
         return {}
 
     def _get_tesla_data(self) -> dict:
-        """Return Tesla delivery context."""
+        """Tesla delivery/production numbers change every quarter and there's no
+        free real-time API for them, so — unlike CPI/Fed/jobs above — this can't
+        be fetched live. Rather than assert a specific hardcoded number that will
+        silently go stale (as the old version did), this is explicit about the
+        limitation so the AI doesn't treat guessed figures as current fact."""
         return {
-            "label": "Tesla delivery data",
-            "data": (
-                "Q1 2026 deliveries: 358,023 (down from 418,227 in Q4 2025). "
-                "Q1 2026 production: 408,386. "
-                "Street consensus for Q2 2026 deliveries: ~390,000-420,000. "
-                "Q2 2025 deliveries were 384,122 for comparison. "
-                "Tesla reports Q2 numbers in first week of July 2026."
-            ),
-            "note": "Sequential recovery from Q1 is expected but magnitude is uncertain"
+            "label": "Tesla delivery/production data",
+            "data": "No live delivery/production feed available for this cycle.",
+            "note": ("Do not assume specific delivery/production numbers from training data are "
+                     "still current — Tesla reports new quarterly figures every ~3 months and any "
+                     "number you recall may already be superseded. Treat this market with extra "
+                     "caution and require a genuinely strong, current, articulable reason before "
+                     "trading against the market price; when unsure, prefer SKIP.")
         }
 
     # ─── NEWS FETCHING ───────────────────────────────────────────────────────
@@ -367,7 +458,8 @@ Only recommend YES or NO if you have at least 5% edge AND 60%+ confidence AND a 
   - CME FedWatch Tool is the gold standard — market price likely already reflects it
   - Fed decisions are telegraphed weeks ahead through speeches and minutes
   - Base rate: Fed follows through on heavily priced-in moves ~90% of the time
-  - Current rate: 3.50-3.75%. Next meeting: June 16-17, 2026
+  - See LIVE DATA above for the current target range and its as-of date — do not assume a
+    specific meeting date or rate from memory, as FOMC meetings happen roughly every 6 weeks
   - If priced above 85% or below 15%, it is almost certainly correct"""
 
         elif any(x in question for x in ["s&p", "nasdaq", "dow", "stock"]):
@@ -391,10 +483,11 @@ Only recommend YES or NO if you have at least 5% edge AND 60%+ confidence AND a 
 
         elif any(x in question for x in ["gdp"]):
             return """SPECIALIST CONTEXT — GDP:
-  - GDPNow (Atlanta Fed) is the best real-time tracker — see LIVE DATA above
-  - Q2 2026 GDP won't be officially released until late July 2026
-  - GDPNow tracking ~2.9% for Q2 as of early June — strongly above 2.0% threshold
-  - Base rate: GDPNow within 0.5% of final estimate ~70% of the time"""
+  - No free real-time GDPNow feed is available — see LIVE DATA above for the last officially
+    released quarter, which will lag the market's current quarter
+  - Do not assume a specific quarter's release date or estimate from memory — GDP data ages fast
+  - Base rate: quarterly GDP prints are revised more than people expect; treat any single
+    estimate (including your own) with humility"""
 
         elif any(x in question for x in ["unemployment", "jobs", "nonfarm", "payroll"]):
             return """SPECIALIST CONTEXT — Jobs:
@@ -410,9 +503,11 @@ Only recommend YES or NO if you have at least 5% edge AND 60%+ confidence AND a 
         elif any(x in question for x in ["tesla", "nvidia", "apple", "earnings", "production", "deliveries"]):
             return """SPECIALIST CONTEXT — Companies:
   - Analyst consensus estimates are already priced in
-  - See LIVE DATA above for Tesla's most recent actuals and street estimates
-  - Q2 2026 delivery report expected first week of July 2026
-  - Sequential recovery from weak Q1 (358k) is expected but magnitude uncertain"""
+  - No live delivery/production feed is available for this cycle — see LIVE DATA above
+  - Do not assume specific delivery/production numbers or report dates from memory; they are
+    almost certainly outdated by the time this market is being evaluated
+  - This series has produced losing trades before — require an unusually strong, current,
+    articulable reason before trading against the market price; prefer SKIP when in doubt"""
 
         else:
             return """SPECIALIST CONTEXT — General:
