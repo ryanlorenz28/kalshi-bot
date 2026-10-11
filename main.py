@@ -140,6 +140,21 @@ def check_exit_positions(client, logger, config, state):
                 )
                 success = client.sell_position(market_id, side, contracts)
                 if success:
+                    loss = (entry_price - current_price) * contracts
+                    state["daily_loss"] += max(0, loss)
+                    to_remove.append(market_id)
+
+            # Hard stop: down 70%+ regardless of time — position has gone very wrong
+            elif gain_pct <= -0.70:
+                logger.info(
+                    Fore.RED +
+                    f"  🛑 HARD STOP: {market_id} down {abs(gain_pct):.0%} — exiting regardless of expiry"
+                    + Style.RESET_ALL
+                )
+                success = client.sell_position(market_id, side, contracts)
+                if success:
+                    loss = (entry_price - current_price) * contracts
+                    state["daily_loss"] += max(0, loss)
                     to_remove.append(market_id)
 
         except Exception as e:
@@ -287,7 +302,8 @@ def run_cycle(client, analyzer, logger, config, state):
 
         if use_real:
             state["real_money_spent"] += actual_cost
-            state["daily_loss"] += actual_cost
+            # daily_loss tracks realized losses only, not new spend
+            # (new spend is not a loss until a position resolves against us)
 
         trade_record = {
             "timestamp":      datetime.now().isoformat(),

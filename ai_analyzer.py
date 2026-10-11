@@ -478,7 +478,7 @@ Only recommend YES or NO if you have at least 5% edge AND 60%+ confidence AND a 
             return """SPECIALIST CONTEXT — CPI/Inflation:
   - Bloomberg consensus forecasts are already baked into market prices
   - Base rate: actual CPI comes within 0.1% of consensus ~60% of the time
-  - May 2026 CPI releases ~June 11 — check if that data is now available
+  - CPI is released monthly around the 10th-15th — check LIVE DATA above for the latest readings
   - Best edge: when recent monthly trend strongly diverges from the market threshold"""
 
         elif any(x in question for x in ["gdp"]):
