@@ -146,7 +146,8 @@ def check_exit_positions(client, logger, config, state):
 
             # Hard stop: down 70%+ regardless of time — position has gone very wrong
             elif gain_pct <= -0.70:
-                if current_price < 0.05:
+                logger.info(f"  [debug] {market_id} current_price={current_price:.4f} entry={entry_price:.4f} gain={gain_pct:.0%}")
+                if current_price < 0.10:
                     # Position is essentially worthless — no buyers, just mark as dead
                     logger.info(
                         Fore.RED +
