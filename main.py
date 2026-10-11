@@ -146,16 +146,27 @@ def check_exit_positions(client, logger, config, state):
 
             # Hard stop: down 70%+ regardless of time — position has gone very wrong
             elif gain_pct <= -0.70:
-                logger.info(
-                    Fore.RED +
-                    f"  🛑 HARD STOP: {market_id} down {abs(gain_pct):.0%} — exiting regardless of expiry"
-                    + Style.RESET_ALL
-                )
-                success = client.sell_position(market_id, side, contracts)
-                if success:
-                    loss = (entry_price - current_price) * contracts
-                    state["daily_loss"] += max(0, loss)
+                if current_price < 0.05:
+                    # Position is essentially worthless — no buyers, just mark as dead
+                    logger.info(
+                        Fore.RED +
+                        f"  💀 DEAD POSITION: {market_id} down {abs(gain_pct):.0%} "
+                        f"at {current_price:.2f}¢ — no liquidity, holding to expiry"
+                        + Style.RESET_ALL
+                    )
+                    # Remove from active tracking so we stop checking it every cycle
                     to_remove.append(market_id)
+                else:
+                    logger.info(
+                        Fore.RED +
+                        f"  🛑 HARD STOP: {market_id} down {abs(gain_pct):.0%} — exiting regardless of expiry"
+                        + Style.RESET_ALL
+                    )
+                    success = client.sell_position(market_id, side, contracts)
+                    if success:
+                        loss = (entry_price - current_price) * contracts
+                        state["daily_loss"] += max(0, loss)
+                        to_remove.append(market_id)
 
         except Exception as e:
             logger.error(f"Error checking exit for {market_id}: {e}")

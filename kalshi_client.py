@@ -191,6 +191,7 @@ class KalshiClient:
         "KXTSLA-26JULDELIV-460000.0",   # illiquid — consistently fails to fill
         "KXTSLA-26JULPROD-460000.0",    # illiquid — consistently fails to fill
         "KXTSLA-26JULDELIV-450000.0",   # illiquid — consistently fails to fill
+        "KXFED-27APR-T4.00",            # dead position — no buyers, resolves Apr 2027
     }
 
     def _is_tradeable(self, market: dict) -> bool:
