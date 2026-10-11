@@ -104,7 +104,7 @@ def check_exit_positions(client, logger, config, state):
                 current_price /= 100
 
             entry_price = float(pos.get("entry_price", 0.5))
-            contracts   = int(pos.get("contracts", 1))
+            contracts   = max(1, float(pos.get("contracts", 1)))
             gain_pct    = (current_price - entry_price) / entry_price if entry_price > 0 else 0
             # Use live close_time for accurate days remaining
             try:
@@ -385,11 +385,12 @@ def main():
             cost = abs(float(raw_cost or 0))
             # If cost is still 0, estimate from position size and avg price
             if cost == 0:
-                contracts = abs(int(float(pos.get("position_fp", 0) or 0)))
+                contracts = max(1, abs(float(pos.get("position_fp", 0) or 0)))
                 avg_price = 0.5
                 cost = round(contracts * avg_price, 2)
             side = "Yes" if float(pos.get("position_fp", 0) or 0) > 0 else "No"
-            contracts = abs(int(float(pos.get("position_fp", 0) or 0)))
+            # Use float for contracts — Kalshi V2 endpoint requires count >= 0.01
+            contracts = max(1, abs(float(pos.get("position_fp", 0) or 0)))
             if ticker and cost > 0:
                 # Fetch live market data to get accurate days_to_resolve and entry price
                 days = 999
