@@ -93,25 +93,27 @@ class KalshiClient:
         event_count = {}
 
         macro_tickers = [
-            # Economics — verified from Kalshi fee schedule
-            "KXCPI",        # CPI monthly
-            "KXCPIYOY",     # Inflation YoY
+            # Jobs / employment first — high edge potential, less competition
+            "KXPAYROLLS",   # Jobs numbers
+            "KXU3",         # Unemployment
+            # Fed / rates
             "KXFED",        # Fed funds rate
             "KXFEDDECISION",# Fed meeting decision
             "KXRATECUTCOUNT",# Number of rate cuts
+            # GDP
             "KXGDP",        # US GDP growth
-            "KXPAYROLLS",   # Jobs numbers
-            "KXU3",         # Unemployment
-            # Crypto — verified
+            # Crypto
             "KXBTC", "KXETH", "KXBTCMAX150", "KXBTCY", "KXETHY",
-            # Equities / indices — verified
+            # Equities / indices
             "KXINX", "KXNDAQ", "KXINXY", "KXNASDAQ100Y",
-            # Commodities — verified
+            # Commodities
             "KXOIL", "KXGOLD", "KXAAAGASM", "KXEGGS",
-            # Tech / culture — verified
+            # Tech / culture
             "KXLLM1", "KXIPO", "KXLAYOFFSYINFO",
-            # Misc macro events — verified
+            # Misc macro
             "KXDOED", "KXGREENLAND", "KXCITRINI",
+            # CPI last — already at series cap, fetch last so it doesn't crowd out others
+            "KXCPI", "KXCPIYOY",
         ]
         for series in macro_tickers:
             if len(markets) >= limit:
