@@ -93,22 +93,25 @@ class KalshiClient:
         event_count = {}
 
         macro_tickers = [
-            # Crypto
-            "KXBTC", "KXETH", "KXSOL", "KXXRP",
-            # US equities / indices
-            "KXINX", "KXNDAQ", "KXDOW", "KXVIX",
-            # Economics
-            "KXCPI", "KXFED", "KXGDP", "KXUNEMP", "KXPCE", "KXPPI",
-            # Commodities
-            "KXOIL", "KXGOLD", "KXNG", "KXDXY",
-            # Politics / elections
-            "KXPRES", "KXSEN", "KXHOUSE", "KXGOV", "KXPOL",
-            # Tech / companies (no live-feed risk — earnings are public)
-            "KXAAPL", "KXGOOG", "KXMETA", "KXMSFT", "KXAMZN",
-            # Climate / weather
-            "KXCLIM", "KXHURR", "KXTEMP",
-            # Culture / misc macro
-            "KXAI", "KXFDA", "KXDEBT",
+            # Economics — verified from Kalshi fee schedule
+            "KXCPI",        # CPI monthly
+            "KXCPIYOY",     # Inflation YoY
+            "KXFED",        # Fed funds rate
+            "KXFEDDECISION",# Fed meeting decision
+            "KXRATECUTCOUNT",# Number of rate cuts
+            "KXGDP",        # US GDP growth
+            "KXPAYROLLS",   # Jobs numbers
+            "KXU3",         # Unemployment
+            # Crypto — verified
+            "KXBTC", "KXETH", "KXBTCMAX150", "KXBTCY", "KXETHY",
+            # Equities / indices — verified
+            "KXINX", "KXNDAQ", "KXINXY", "KXNASDAQ100Y",
+            # Commodities — verified
+            "KXOIL", "KXGOLD", "KXAAAGASM", "KXEGGS",
+            # Tech / culture — verified
+            "KXLLM1", "KXIPO", "KXLAYOFFSYINFO",
+            # Misc macro events — verified
+            "KXDOED", "KXGREENLAND", "KXCITRINI",
         ]
         for series in macro_tickers:
             if len(markets) >= limit:
