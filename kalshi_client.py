@@ -93,10 +93,22 @@ class KalshiClient:
         event_count = {}
 
         macro_tickers = [
-            "KXBTC", "KXETH", "KXINX", "KXNDAQ", "KXDOW",
-            "KXCPI", "KXFED", "KXGDP", "KXUNEMP", "KXPCE",
-            "KXPRES", "KXSEN", "KXHOUSE", "KXGOV",
-            "KXOIL", "KXGOLD", "KXDXY", "KXTSLA", "KXNVDA",
+            # Crypto
+            "KXBTC", "KXETH", "KXSOL", "KXXRP",
+            # US equities / indices
+            "KXINX", "KXNDAQ", "KXDOW", "KXVIX",
+            # Economics
+            "KXCPI", "KXFED", "KXGDP", "KXUNEMP", "KXPCE", "KXPPI",
+            # Commodities
+            "KXOIL", "KXGOLD", "KXNG", "KXDXY",
+            # Politics / elections
+            "KXPRES", "KXSEN", "KXHOUSE", "KXGOV", "KXPOL",
+            # Tech / companies (no live-feed risk — earnings are public)
+            "KXAAPL", "KXGOOG", "KXMETA", "KXMSFT", "KXAMZN",
+            # Climate / weather
+            "KXCLIM", "KXHURR", "KXTEMP",
+            # Culture / misc macro
+            "KXAI", "KXFDA", "KXDEBT",
         ]
         for series in macro_tickers:
             if len(markets) >= limit:
@@ -117,7 +129,7 @@ class KalshiClient:
                             continue
                         if self._is_combo_ticker(ticker):
                             continue
-                        if event_count.get(event, 0) >= 2:
+                        if event_count.get(event, 0) >= 3:
                             continue
                         norm = self._normalize(m)
                         if norm and self._is_tradeable(norm):
@@ -145,7 +157,7 @@ class KalshiClient:
                             continue
                         if self._is_combo_ticker(ticker):
                             continue
-                        if event_count.get(event, 0) >= 2:
+                        if event_count.get(event, 0) >= 3:
                             continue
                         norm = self._normalize(m)
                         if norm and self._is_tradeable(norm):
@@ -185,8 +197,8 @@ class KalshiClient:
         days = market.get("days_to_resolve", 999)
         if days == 0:
             return False
-        # Skip markets resolving more than 90 days out
-        if days > 90:
+        # Skip markets resolving more than 120 days out
+        if days > 120:
             return False
         if market.get("volume", 0) < 500:
             return False
