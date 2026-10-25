@@ -115,9 +115,9 @@ def check_exit_positions(client, logger, config, state):
             except Exception:
                 days_left = pos.get("days_to_resolve", 999)
 
-            # Take profit: up 40%+ OR trading above 85¢ (near-certain resolution)
+            # Take profit: up 40%+ OR trading above 85¢ while in profit
             take_profit_min_price = getattr(config, "TAKE_PROFIT_MIN_PRICE", 0.85)
-            if gain_pct >= config.TAKE_PROFIT_PCT or current_price >= take_profit_min_price:
+            if gain_pct >= config.TAKE_PROFIT_PCT or (current_price >= take_profit_min_price and gain_pct > 0):
                 logger.info(
                     Fore.GREEN +
                     f"  💰 TAKE PROFIT: {market_id} up {gain_pct:.0%} "
