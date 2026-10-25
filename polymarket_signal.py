@@ -31,7 +31,7 @@ KALSHI_TO_POLY_KEYWORDS = {
 }
 
 TOP_TRADER_COUNT = 5   # how many top traders to check
-REQUEST_TIMEOUT  = 8   # seconds
+REQUEST_TIMEOUT  = 4   # seconds — keep short so it never holds up analysis
 
 
 class PolymarketSignal:

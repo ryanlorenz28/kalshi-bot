@@ -61,12 +61,14 @@ class AIAnalyzer:
         try:
             news     = self._fetch_news(market)
             live     = self._fetch_live_data(market)
-            # Pre-fetch Polymarket signal — we don't know Claude's side yet so
-            # we pass it as context; Claude decides how much weight to give it
-            poly_sig = self.poly.get_signal(
-                market.get("question", ""),
-                our_side="YES"  # placeholder; signal includes both directions
-            )
+            # Pre-fetch Polymarket signal — isolated so any failure never kills analysis
+            try:
+                poly_sig = self.poly.get_signal(
+                    market.get("question", ""),
+                    our_side="YES"
+                )
+            except Exception:
+                poly_sig = {"signal": "NEUTRAL", "detail": "Polymarket signal unavailable"}
             prompt   = self._build_prompt(market, news, live, poly_sig)
             raw      = self._call_claude(prompt)
             decision = self._parse(raw, market)
