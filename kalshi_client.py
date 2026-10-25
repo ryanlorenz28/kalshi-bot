@@ -360,6 +360,10 @@ class KalshiClient:
         try:
             r, payload = self._submit_order_v2(ticker, book_side, count, book_price)
             if not r.ok:
+                if r.status_code == 404:
+                    # Market already closed/resolved — treat as successfully exited
+                    print(f"Market {ticker} already resolved (404) — removing from tracking")
+                    return True
                 print(f"Error selling position ({r.status_code}): {r.text[:300]}")
                 return False
             order = r.json()

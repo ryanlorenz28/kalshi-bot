@@ -216,12 +216,20 @@ def run_cycle(client, analyzer, logger, config, state):
 
         # Use ticker prefix as series key (e.g. "KXGDP" from "KXGDP-26Q2-T2")
         series = market["id"].split("-")[0]
+        # Higher cap for liquid macro series where Claude finds consistent edge
+        SERIES_CAP_OVERRIDES = {
+            "KXPAYROLLS": 50.00,  # Jobs markets — liquid, strong edge history
+            "KXU3":        50.00,  # Unemployment — same data release
+            "KXGDP":       50.00,  # GDP — strong track record (+129%)
+            "KXCPI":       40.00,  # CPI — good but already have positions
+        }
+        series_cap = SERIES_CAP_OVERRIDES.get(series, config.MAX_EXPOSURE_PER_SERIES)
         series_spent = sum(
             t.get("cost_usd", 0) for t in state["open_positions"].values()
             if t.get("series", "") == series and t.get("mode") == "LIVE"
         )
-        if series_spent >= config.MAX_EXPOSURE_PER_SERIES:
-            logger.info(f"  ⛔ Series cap (${config.MAX_EXPOSURE_PER_SERIES:.0f}) reached for {series}")
+        if series_spent >= series_cap:
+            logger.info(f"  ⛔ Series cap (${series_cap:.0f}) reached for {series}")
             continue
 
         if not check_daily_loss_limit(state, config, logger):
