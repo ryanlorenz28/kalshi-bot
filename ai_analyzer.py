@@ -15,6 +15,7 @@ import requests
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 import anthropic
+from polymarket_signal import PolymarketSignal
 
 # ─── SYSTEM PROMPT ────────────────────────────────────────────────────────────
 SYSTEM_PROMPT = """You are an elite prediction market analyst and calibrated superforecaster
@@ -52,6 +53,7 @@ class AIAnalyzer:
         self.logger = logger
         self.client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
         self.today  = datetime.now(timezone.utc).strftime("%B %d, %Y")
+        self.poly   = PolymarketSignal()
         self._live_data_cache = {}  # cache live data per cycle to avoid redundant fetches
 
     def analyze_market(self, market: dict) -> dict:
@@ -59,9 +61,17 @@ class AIAnalyzer:
         try:
             news     = self._fetch_news(market)
             live     = self._fetch_live_data(market)
-            prompt   = self._build_prompt(market, news, live)
+            # Pre-fetch Polymarket signal — we don't know Claude's side yet so
+            # we pass it as context; Claude decides how much weight to give it
+            poly_sig = self.poly.get_signal(
+                market.get("question", ""),
+                our_side="YES"  # placeholder; signal includes both directions
+            )
+            prompt   = self._build_prompt(market, news, live, poly_sig)
             raw      = self._call_claude(prompt)
             decision = self._parse(raw, market)
+            # Attach signal to decision for logging
+            decision["poly_signal"] = poly_sig.get("signal", "NEUTRAL")
             return decision
         except Exception as e:
             self.logger.error(f"Analysis error: {e}")
@@ -364,7 +374,7 @@ class AIAnalyzer:
 
     # ─── PROMPT BUILDING ─────────────────────────────────────────────────────
 
-    def _build_prompt(self, market: dict, news: List[Dict], live: dict) -> str:
+    def _build_prompt(self, market: dict, news: List[Dict], live: dict, poly_sig: dict = None) -> str:
         question  = market.get("question", "")
         yes_price = market.get("outcomes", [{}])[0].get("price", 0.5)
         no_price  = round(1 - yes_price, 4)
@@ -402,6 +412,17 @@ class AIAnalyzer:
         else:
             live_block = "LIVE DATA: Not available for this market type.\n"
 
+        # ── POLYMARKET SIGNAL BLOCK ──────────────────────────────────────────
+        if poly_sig and poly_sig.get("signal") != "NEUTRAL":
+            sig = poly_sig["signal"]
+            detail = poly_sig["detail"]
+            if sig == "AGREE":
+                poly_block = f"POLYMARKET SMART MONEY SIGNAL: ✅ CONFIRMS — {detail}\n  → Top Polymarket traders are positioned the same way. This is a mild confidence booster but not a guarantee.\n"
+            else:
+                poly_block = f"POLYMARKET SMART MONEY SIGNAL: ⚠️  CONTRADICTS — {detail}\n  → Top Polymarket traders are on the OPPOSITE side. Require stronger evidence before trading.\n"
+        else:
+            poly_block = "POLYMARKET SIGNAL: Neutral or unavailable — no confirmation from top traders.\n"
+
         specialist = self._specialist_context(market)
 
         prompt = f"""Today's date: {self.today}
@@ -426,6 +447,8 @@ MARKET DATA:
 {news_block}
 {'─' * 55}
 {specialist}
+{'─' * 55}
+{poly_block}
 {'─' * 55}
 STEP-BY-STEP REASONING REQUIRED:
 
