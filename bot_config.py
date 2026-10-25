@@ -30,9 +30,9 @@ class BotConfig:
     MIN_BET_SIZE            = 3.00       # min single bet
 
     # ─── SCANNING ─────────────────────────────────────────────
-    MARKETS_TO_SCAN        = 10
+    MARKETS_TO_SCAN        = 20   # raised — with 9+ positions held, need more to find new ones
     CYCLE_INTERVAL_MINUTES = 30
-    DELAY_BETWEEN_ANALYSES = 2
+    DELAY_BETWEEN_ANALYSES = 1    # lowered from 2s — no reason to wait longer
 
     # ─── TRADING RULES ────────────────────────────────────────
     MIN_CONFIDENCE_TO_TRADE = 0.60
@@ -42,8 +42,9 @@ class BotConfig:
     KELLY_FRACTION          = 0.25
 
     # ─── POSITION MANAGER ─────────────────────────────────────
-    TAKE_PROFIT_PCT = 0.50
-    STOP_LOSS_PCT   = 0.40
+    TAKE_PROFIT_PCT      = 0.40   # lowered from 50% — exit when up 40%
+    TAKE_PROFIT_MIN_PRICE= 0.85   # OR when trading above 85¢ (near-certain resolution)
+    STOP_LOSS_PCT        = 0.40
 
     # ─── AI SETTINGS ──────────────────────────────────────────
     CLAUDE_MODEL           = "claude-sonnet-4-6"

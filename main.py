@@ -115,8 +115,9 @@ def check_exit_positions(client, logger, config, state):
             except Exception:
                 days_left = pos.get("days_to_resolve", 999)
 
-            # Take profit: position up TAKE_PROFIT_PCT and trading above 80¢
-            if gain_pct >= config.TAKE_PROFIT_PCT and current_price >= 0.80:
+            # Take profit: up 40%+ OR trading above 85¢ (near-certain resolution)
+            take_profit_min_price = getattr(config, "TAKE_PROFIT_MIN_PRICE", 0.85)
+            if gain_pct >= config.TAKE_PROFIT_PCT or current_price >= take_profit_min_price:
                 logger.info(
                     Fore.GREEN +
                     f"  💰 TAKE PROFIT: {market_id} up {gain_pct:.0%} "
@@ -196,6 +197,9 @@ def run_cycle(client, analyzer, logger, config, state):
             f"Daily loss: ${state['daily_loss']:.2f} / ${config.DAILY_LOSS_LIMIT:.2f}"
         )
 
+    # Cache live balance once per cycle — avoids a live API call per trade
+    cached_live_balance = client.get_balance() if not config.PAPER_TRADING else None
+
     logger.info("📡 Scanning Kalshi for active markets...")
     markets = client.get_markets(limit=config.MARKETS_TO_SCAN)
 
@@ -267,8 +271,8 @@ def run_cycle(client, analyzer, logger, config, state):
                     f"Falling back to paper trade." + Style.RESET_ALL
                 )
             else:
-                # Use live Kalshi balance for bet sizing, not config limit
-                live_balance = client.get_balance() or remaining
+                # Use cached live balance for bet sizing
+                live_balance = cached_live_balance or remaining
                 bet_amount = min(
                     config.bet_size(confidence, live_balance),
                     remaining,
@@ -470,7 +474,7 @@ def main():
     status_server.start(state, client, config)
 
     mode_str = "LIVE" if not config.PAPER_TRADING else "PAPER"
-    logger.info(f"🚀 Bot started in {mode_str} mode [v2.1 — dead position handling]")
+    logger.info(f"🚀 Bot started in {mode_str} mode [v2.2 — scan 20, smart take-profit, S&P live data]")
     logger.info(f"📡 Scanning {config.MARKETS_TO_SCAN} markets every {config.CYCLE_INTERVAL_MINUTES} min")
     if not config.PAPER_TRADING:
         logger.info(f"💵 Real money cap: ${config.REAL_MONEY_LIMIT:.0f}")

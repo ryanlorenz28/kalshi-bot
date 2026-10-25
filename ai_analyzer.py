@@ -95,6 +95,8 @@ class AIAnalyzer:
                 data = self._get_fed_data()
             elif any(x in question for x in ["unemployment", "jobs", "nonfarm", "payroll"]):
                 data = self._get_jobs_data()
+            elif any(x in question for x in ["s&p", "s&p 500", "sp500", "spx", "inx"]):
+                data = self._get_sp500_data()
             elif any(x in question for x in ["bitcoin", "btc"]):
                 data = self._get_crypto_price("bitcoin")
             elif any(x in question for x in ["ethereum", "eth"]):
@@ -287,6 +289,35 @@ class AIAnalyzer:
         except Exception:
             pass
         return {}
+
+    def _get_sp500_data(self) -> dict:
+        """Fetch S&P 500 level from Yahoo Finance (free, no key needed)."""
+        try:
+            resp = requests.get(
+                "https://query1.finance.yahoo.com/v8/finance/chart/%5EGSPC",
+                params={"interval": "1d", "range": "5d"},
+                headers={"User-Agent": "Mozilla/5.0"},
+                timeout=8,
+            )
+            if resp.status_code == 200:
+                result = resp.json().get("chart", {}).get("result", [{}])[0]
+                meta = result.get("meta", {})
+                price = meta.get("regularMarketPrice") or meta.get("previousClose")
+                prev  = meta.get("chartPreviousClose") or meta.get("previousClose")
+                if price:
+                    change_pct = ((price - prev) / prev * 100) if prev else 0
+                    return {
+                        "label": "Live S&P 500 level (Yahoo Finance)",
+                        "data":  f"Current S&P 500: {price:,.2f} | Change: {change_pct:+.2f}%",
+                        "note":  "Compare current level to market threshold directly"
+                    }
+        except Exception:
+            pass
+        return {
+            "label": "S&P 500 data",
+            "data":  "Live S&P 500 data unavailable this cycle.",
+            "note":  "Weight the market price heavily without current level data."
+        }
 
     def _get_tesla_data(self) -> dict:
         """Tesla delivery/production numbers change every quarter and there's no

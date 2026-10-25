@@ -119,17 +119,30 @@ class PolymarketSignal:
             return self._top_traders
 
         try:
+            # Polymarket Data API leaderboard — ranked by profit
             resp = requests.get(
-                f"{POLYMARKET_DATA_API}/leaderboard",
-                params={"window": "1m", "limit": TOP_TRADER_COUNT},
+                f"{POLYMARKET_DATA_API}/leaderboard-new",
+                params={"window": "1m", "limit": TOP_TRADER_COUNT, "sortBy": "profit"},
                 timeout=REQUEST_TIMEOUT,
             )
             if resp.status_code != 200:
+                # Try alternate endpoint path
+                resp = requests.get(
+                    f"{POLYMARKET_DATA_API}/leaderboards",
+                    params={"window": "monthly", "limit": TOP_TRADER_COUNT},
+                    timeout=REQUEST_TIMEOUT,
+                )
+            if resp.status_code != 200:
                 return []
             data = resp.json()
-            # API returns list of {address, name, pnl, ...}
-            traders = [row.get("address") or row.get("proxyWallet", "") for row in data]
-            traders = [t for t in traders if t]
+            # Handle both list and dict response shapes
+            rows = data if isinstance(data, list) else data.get("data", data.get("leaderboard", []))
+            traders = []
+            for row in rows:
+                addr = (row.get("address") or row.get("proxyWallet") or
+                        row.get("user", {}).get("proxyWallet", ""))
+                if addr:
+                    traders.append(addr)
             self._top_traders = traders[:TOP_TRADER_COUNT]
             self._traders_fetched_at = now
             return self._top_traders
