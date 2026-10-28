@@ -39,7 +39,8 @@ class BotConfig:
     MIN_EDGE_TO_TRADE       = 0.05       # lowered from 6% to 5% to catch near-threshold opportunities
     MAX_OPEN_POSITIONS      = 15         # raised to accommodate loaded existing positions
     MAX_EXPOSURE_PER_SERIES = 30.00      # max $ spent on any single company/topic
-    KELLY_FRACTION          = 0.25
+    KELLY_FRACTION          = 0.10       # 10% Kelly (was 0.25)
+    FILL_BUFFER             = 0.03       # place_order pays the ask + 3¢; size on that price
 
     # ─── POSITION MANAGER ─────────────────────────────────────
     TAKE_PROFIT_PCT      = 0.40   # lowered from 50% — exit when up 40%
@@ -69,13 +70,17 @@ class BotConfig:
             return False
         return True
 
-    def bet_size(self, confidence: float, available_balance: float) -> float:
-        """Kelly-fraction bet sizing capped to available balance."""
-        edge = confidence - 0.5
-        if edge <= 0:
+    def bet_size(self, win_prob: float, price: float, available_balance: float) -> float:
+        """Fractional Kelly on the real edge: win_prob is the AI's probability
+        for the side being bought, price is that side's market price.
+        Returns 0.0 (skip the trade) when there's no edge or the bet would be
+        under MIN_BET_SIZE."""
+        cost = min(0.99, price + self.FILL_BUFFER)
+        kelly = (win_prob - cost) / (1 - cost)
+        if kelly <= 0:
             return 0.0
-        kelly_bet = (edge / (1 - confidence + 1e-9)) * self.KELLY_FRACTION
-        kelly_bet = min(kelly_bet, 0.10)   # cap Kelly at 10% of balance (was 20%)
+        kelly_bet = min(kelly * self.KELLY_FRACTION, 0.10)   # cap at 10% of balance
         raw_amount = available_balance * kelly_bet
-        amount = max(self.MIN_BET_SIZE, min(self.MAX_BET_SIZE, raw_amount))
-        return round(amount, 2)
+        if raw_amount < self.MIN_BET_SIZE:
+            return 0.0
+        return round(min(self.MAX_BET_SIZE, raw_amount), 2)

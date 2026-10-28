@@ -256,6 +256,17 @@ def run_cycle(client, analyzer, logger, config, state):
             else market["outcomes"][1]["price"]
         )
 
+        # analysis["my_probability"] and analysis["edge"] are always expressed
+        # relative to YES (per the AI prompt: "your probability minus market
+        # price"). When the trade is on NO, flip both so sizing and the log use
+        # the side actually being bought instead of comparing mismatched sides.
+        if outcome == "Yes":
+            side_probability = analysis["my_probability"]
+            side_edge        = analysis["edge"]
+        else:
+            side_probability = 1 - analysis["my_probability"]
+            side_edge        = side_probability - entry_price
+
         if not config.PAPER_TRADING:
             # Hard total exposure limit
             if state["real_money_spent"] >= config.TOTAL_EXPOSURE_LIMIT:
@@ -263,7 +274,7 @@ def run_cycle(client, analyzer, logger, config, state):
                 break
             remaining = real_money_remaining(state, config)
             if remaining <= 0:
-                bet_amount = config.bet_size(confidence, config.PAPER_STARTING_BALANCE)
+                bet_amount = config.bet_size(side_probability, entry_price, config.PAPER_STARTING_BALANCE)
                 use_real   = False
                 logger.info(
                     Fore.YELLOW +
@@ -274,14 +285,20 @@ def run_cycle(client, analyzer, logger, config, state):
                 # Use cached live balance for bet sizing
                 live_balance = cached_live_balance or remaining
                 bet_amount = min(
-                    config.bet_size(confidence, live_balance),
+                    config.bet_size(side_probability, entry_price, live_balance),
                     remaining,
                     live_balance * 0.25,   # never bet more than 25% of available cash
                 )
                 use_real = True
         else:
-            bet_amount = config.bet_size(confidence, config.PAPER_STARTING_BALANCE)
+            bet_amount = config.bet_size(side_probability, entry_price, config.PAPER_STARTING_BALANCE)
             use_real   = False
+
+        if bet_amount < config.MIN_BET_SIZE:
+            logger.info(f"  ⏭️  Skip: bet size ${bet_amount:.2f} under ${config.MIN_BET_SIZE:.0f} minimum "
+                        f"({side_probability:.0%} vs {entry_price:.2f} {outcome} price)")
+            time.sleep(config.DELAY_BETWEEN_ANALYSES)
+            continue
 
         order_result = client.place_order(
             ticker    = market["id"],
@@ -299,17 +316,6 @@ def run_cycle(client, analyzer, logger, config, state):
         actual_cost = order_result.get("cost_usd", bet_amount)
         trade_mode  = "LIVE" if use_real else "PAPER"
         color       = Fore.GREEN if use_real else Fore.CYAN
-
-        # analysis["my_probability"] and analysis["edge"] are always expressed
-        # relative to YES (per the AI prompt: "your probability minus market
-        # price"). When the trade is on NO, flip both so the log reflects the
-        # side actually being bought instead of comparing mismatched sides.
-        if outcome == "Yes":
-            side_probability = analysis["my_probability"]
-            side_edge        = analysis["edge"]
-        else:
-            side_probability = 1 - analysis["my_probability"]
-            side_edge        = side_probability - entry_price
 
         logger.info(
             color +
@@ -474,7 +480,7 @@ def main():
     status_server.start(state, client, config)
 
     mode_str = "LIVE" if not config.PAPER_TRADING else "PAPER"
-    logger.info(f"🚀 Bot started in {mode_str} mode [v2.3 — real NO price from NO ask / YES bid]")
+    logger.info(f"🚀 Bot started in {mode_str} mode [v2.4 — 10% Kelly sizing on real edge, skip under $3]")
     logger.info(f"📡 Scanning {config.MARKETS_TO_SCAN} markets every {config.CYCLE_INTERVAL_MINUTES} min")
     if not config.PAPER_TRADING:
         logger.info(f"💵 Real money cap: ${config.REAL_MONEY_LIMIT:.0f}")

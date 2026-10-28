@@ -13,7 +13,7 @@ Ryan owns the bot and has no prior coding experience. He approves changes; you e
 
 ## 1. What the bot does
 
-A Python bot that uses Claude (`claude-sonnet-4-6`) to analyze binary Kalshi macro prediction markets (jobs, Fed, GDP, CPI, crypto, equities, commodities, a few misc events) and place trades when it finds enough edge. Sizing uses a 10% Kelly fraction inside hard dollar caps.
+A Python bot that uses Claude (`claude-sonnet-4-6`) to analyze binary Kalshi macro prediction markets (jobs, Fed, GDP, CPI, crypto, equities, commodities, a few misc events) and place trades when it finds enough edge. Sizing (`bot_config.bet_size`, v2.4+) is 10% Kelly on the real edge: Claude's probability for the side being bought versus that side's price plus the 3¢ fill buffer. The bet is capped at 10% of balance and $15, and the trade is skipped when the math says under $3.
 
 | File | Role |
 |---|---|
@@ -83,8 +83,13 @@ Check this list before working in any of these areas.
 - Authenticated endpoints fail on an unfunded account. Rule this out before debugging auth.
 
 **YES/NO asymmetry** (the most repeated bug source)
-- NO pricing is the NO ask, not `1 - yes_bid` unless you're sure that's intended.
-- `my_probability` is always relative to YES. When logging or computing edge on a NO trade, flip both probability and edge.
+- The price to buy NO is the NO ask, which equals `1 - yes_bid`. It is **not** `1 - yes_ask`, which understates NO's cost by the spread and overstated NO edge until v2.3. `_normalize` uses `_no_buy_price` for this; don't reintroduce `1 - yes_price`.
+- `my_probability` is always relative to YES. When logging, computing edge, or sizing a NO trade, use `1 - my_probability` and the NO price. The analyzer re-checks NO-trade edge against the real NO price.
+
+**Bet sizing**
+- Before v2.4, size came from Claude's *confidence* versus 50%, ignoring the market price, so nearly every trade hit the $15 max. Size must come from the side's probability versus the price actually paid.
+- With a ~$160 balance, 10% Kelly needs roughly 12+ points of edge (after the 3¢ buffer) to clear the $3 minimum. Few trades placed is expected, not a bug.
+- `place_order` rounds contracts down, so actual cost can land a few cents under the sized amount.
 - Any change touching side logic needs a dry-run check of one YES trade and one NO trade.
 
 **Risk logic**
