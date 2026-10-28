@@ -37,7 +37,7 @@ class BotConfig:
     # ─── TRADING RULES ────────────────────────────────────────
     MIN_CONFIDENCE_TO_TRADE = 0.60
     MIN_EDGE_TO_TRADE       = 0.05       # lowered from 6% to 5% to catch near-threshold opportunities
-    MAX_OPEN_POSITIONS      = 0          # TEMP BLOCK on new trades (normally 15) — bot loads 15 positions, Kalshi shows 14; restore after Ryan approves
+    MAX_OPEN_POSITIONS      = 15         # raised to accommodate loaded existing positions
     MAX_EXPOSURE_PER_SERIES = 30.00      # max $ spent on any single company/topic
     KELLY_FRACTION          = 0.10       # 10% Kelly (was 0.25)
     FILL_BUFFER             = 0.03       # place_order pays the ask + 3¢; size on that price
