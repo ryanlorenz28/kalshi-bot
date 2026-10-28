@@ -466,6 +466,8 @@ def main():
                     "status":          "open",
                 }
                 state["real_money_spent"] += cost
+                logger.info(f"   • {ticker}: {side} x{contracts:g}  cost ${cost:.2f}  "
+                            f"(Kalshi exposure ${abs(float(raw_cost or 0)):.2f})")
         if existing:
             logger.info(f"📂 Loaded {len(state['open_positions'])} open positions from Kalshi "
                         f"(${state['real_money_spent']:.2f} at risk) — skipped {skipped_closed} closed "
