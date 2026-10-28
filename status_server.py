@@ -6,6 +6,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import json
 import threading
 import os
+import prediction_log
 
 _state_ref = None
 _client_ref = None
@@ -39,6 +40,7 @@ def start(state, client, config):
                     "daily_loss_limit":   _config_ref.DAILY_LOSS_LIMIT,
                     "open_positions":     _state_ref.get("open_positions", {}),
                     "paper_trading":      _config_ref.PAPER_TRADING,
+                    "predictions":        prediction_log.summary(),
                 }
                 body = json.dumps(payload).encode()
                 self.send_response(200)

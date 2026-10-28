@@ -13,6 +13,7 @@ import sys
 import csv
 import os
 import status_server
+import prediction_log
 from datetime import datetime, date
 from colorama import init, Fore, Style
 from bot_config import BotConfig
@@ -191,6 +192,9 @@ def run_cycle(client, analyzer, logger, config, state):
     # Check if any existing positions should be exited
     check_exit_positions(client, logger, config, state)
 
+    # Score settled predictions (every 6h; read-only, never blocks trading)
+    prediction_log.score(client, logger)
+
     if not config.PAPER_TRADING:
         remaining = real_money_remaining(state, config)
         logger.info(
@@ -243,6 +247,8 @@ def run_cycle(client, analyzer, logger, config, state):
 
         logger.info(f"\n🤖 [{i+1}/{len(markets)}] {market['question'][:65]}...")
         analysis = analyzer.analyze_market(market)
+        if "my_probability" in analysis:   # not on analysis errors
+            prediction_log.record("analysis", market, analysis)
 
         if not analysis.get("should_trade"):
             logger.info(f"  ⏭️  Skip: {analysis.get('reason', 'low confidence')}")
@@ -357,6 +363,8 @@ def run_cycle(client, analyzer, logger, config, state):
 
         state["open_positions"][market["id"]] = trade_record
         log_trade(trade_record, config)
+        prediction_log.record("trade", market, analysis, side=outcome, price=entry_price,
+                              bet_usd=actual_cost, mode=trade_mode)
 
         time.sleep(config.DELAY_BETWEEN_ANALYSES)
 
@@ -487,9 +495,10 @@ def main():
 
     # ── Start status server for the dashboard ──────────────────
     status_server.start(state, client, config)
+    logger.info(prediction_log.startup_message())
 
     mode_str = "LIVE" if not config.PAPER_TRADING else "PAPER"
-    logger.info(f"🚀 Bot started in {mode_str} mode [v2.7 — sell at the bid, only sell what we hold]")
+    logger.info(f"🚀 Bot started in {mode_str} mode [v2.8 — prediction log on Railway volume]")
     logger.info(f"📡 Scanning {config.MARKETS_TO_SCAN} markets every {config.CYCLE_INTERVAL_MINUTES} min")
     if not config.PAPER_TRADING:
         logger.info(f"💵 Real money cap: ${config.REAL_MONEY_LIMIT:.0f}")
