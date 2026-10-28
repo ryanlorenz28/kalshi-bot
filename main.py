@@ -11,6 +11,7 @@ import time
 import schedule
 import sys
 import csv
+import json
 import os
 import status_server
 import prediction_log
@@ -66,6 +67,46 @@ def reset_daily_state_if_new_day(state):
     if state.get("last_reset_date") != today:
         state["daily_loss"] = 0.0
         state["last_reset_date"] = today
+        save_daily_loss(state)
+
+
+# Today's realized losses live on the Railway volume so a redeploy doesn't
+# reset the daily loss limit to $0.
+DAILY_LOSS_FILE = "daily_loss.json"
+
+def _daily_loss_path():
+    data_dir = os.environ.get("DATA_DIR", "")
+    return os.path.join(data_dir, DAILY_LOSS_FILE) if data_dir and os.path.isdir(data_dir) else None
+
+
+def save_daily_loss(state):
+    path = _daily_loss_path()
+    if not path:
+        return
+    try:
+        tmp = path + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump({"date": state["last_reset_date"].isoformat(), "daily_loss": state["daily_loss"]}, f)
+        os.replace(tmp, path)
+    except Exception as e:
+        print(f"⚠️  Couldn't save daily loss: {e}")
+
+
+def load_daily_loss(state, logger):
+    path = _daily_loss_path()
+    if not path:
+        logger.warning("Daily loss resets on redeploy — DATA_DIR not set")
+        return
+    try:
+        with open(path) as f:
+            saved = json.load(f)
+        if saved.get("date") == date.today().isoformat():
+            state["daily_loss"] = float(saved.get("daily_loss", 0) or 0)
+        logger.info(f"📉 Daily loss today: ${state['daily_loss']:.2f} (saved in {path})")
+    except FileNotFoundError:
+        logger.info(f"📉 Daily loss today: $0.00 (no saved file yet)")
+    except Exception as e:
+        logger.warning(f"Couldn't read saved daily loss ({e}) — starting today at $0.00")
 
 
 def real_money_remaining(state, config) -> float:
@@ -191,6 +232,7 @@ def run_cycle(client, analyzer, logger, config, state):
 
     # Check if any existing positions should be exited
     check_exit_positions(client, logger, config, state)
+    save_daily_loss(state)
 
     # Score settled predictions (every 6h; read-only, never blocks trading)
     prediction_log.score(client, logger)
@@ -405,6 +447,7 @@ def main():
         "daily_loss":       0.0,
         "last_reset_date":  date.today(),
     }
+    load_daily_loss(state, logger)
 
     # ── Load existing Kalshi positions into state on startup ───
     # This prevents the series cap from resetting on every redeploy
@@ -498,7 +541,7 @@ def main():
     logger.info(prediction_log.startup_message())
 
     mode_str = "LIVE" if not config.PAPER_TRADING else "PAPER"
-    logger.info(f"🚀 Bot started in {mode_str} mode [v2.8 — prediction log on Railway volume]")
+    logger.info(f"🚀 Bot started in {mode_str} mode [v2.9 — daily loss saved on volume]")
     logger.info(f"📡 Scanning {config.MARKETS_TO_SCAN} markets every {config.CYCLE_INTERVAL_MINUTES} min")
     if not config.PAPER_TRADING:
         logger.info(f"💵 Real money cap: ${config.REAL_MONEY_LIMIT:.0f}")
