@@ -77,7 +77,9 @@ Check this list before working in any of these areas.
 - The v1 order endpoint was deprecated and returned a quiet 410 for ~3 months before anyone noticed. Orders now go to V2 `/portfolio/events/orders`. Treat any 404/410 from Kalshi as a possible deprecation and say so loudly.
 - V2 order shape: prices and counts are **strings**, orders are `bid`/`ask` on the **YES leg only**. `_to_book_order` maps yes/no + buy/sell onto that. Don't bypass it.
 - `count` must be a float (V2 requires `>= 0.01`), not an int.
-- Don't send `time_in_force`; it caused repeated 400/409s and was removed.
+- Don't send `time_in_force`; it caused repeated 400/409s and was removed. (Note: `_submit_order_v2` currently sends `"time_in_force": "immediate_or_cancel"`, and that has been working live. Leave it unless orders start failing.)
+- Sells (v2.7+) are priced off the side's **bid** (NO bid = 1 − YES ask) minus `SELL_BUFFER` (2¢). Before v2.7, sells were priced off the ask, so they almost never filled ("Sell order not filled").
+- `sell_position` first checks Kalshi holdings and only sells the side actually held, capped at the contracts held. On the YES-only book, "selling" a side you don't hold *opens* the opposite position: that's how a 1-contract Gemini YES got bought. If the holdings lookup fails, it doesn't sell. `reduce_only` in the payload is still `False`; its behavior on NO positions hasn't been verified.
 - Signing: RSA-PSS with DIGEST_LENGTH salt (not PKCS1v15), and the signed path must include the full `/trade-api/v2` prefix.
 - Private key from Railway env must go through the normalization function (handles literal `\n`, missing PEM headers, single-line base64). Don't remove it.
 - Authenticated endpoints fail on an unfunded account. Rule this out before debugging auth.

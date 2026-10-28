@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 
 class KalshiClient:
     BASE_URL = "https://api.elections.kalshi.com/trade-api/v2"
+    SELL_BUFFER = 0.02   # sell up to 2¢ under the best bid so exits fill
 
     def __init__(self, config):
         self.config = config
@@ -235,23 +236,58 @@ class KalshiClient:
             return None
 
     @staticmethod
+    def _price_field(raw, key):
+        """A price from a Kalshi market dict in dollars, or None if missing/0/1/junk."""
+        try:
+            v = float(raw.get(key) or 0)
+        except (TypeError, ValueError):
+            return None
+        if v > 1: v /= 100
+        return v if 0 < v < 1 else None
+
+    @staticmethod
     def _no_buy_price(raw, yes_price):
         """Price to BUY NO: the NO ask, or 1 - YES bid. Not 1 - YES ask,
         which understates the cost of NO by the bid/ask spread."""
-        def _p(key):
-            try:
-                v = float(raw.get(key) or 0)
-            except (TypeError, ValueError):
-                return None
-            if v > 1: v /= 100
-            return v if 0 < v < 1 else None
-        no_ask = _p("no_ask_dollars")
+        no_ask = KalshiClient._price_field(raw, "no_ask_dollars")
         if no_ask is not None:
             return round(no_ask, 4)
-        yes_bid = _p("yes_bid_dollars")
+        yes_bid = KalshiClient._price_field(raw, "yes_bid_dollars")
         if yes_bid is not None:
             return round(1 - yes_bid, 4)
         return round(1 - yes_price, 4)
+
+    @staticmethod
+    def _sell_price(raw, side):
+        """Best price we can SELL a side at right now (that side's bid), or None
+        if nobody is bidding. NO bid = 1 - YES ask."""
+        if side == "yes":
+            return KalshiClient._price_field(raw, "yes_bid_dollars")
+        no_bid = KalshiClient._price_field(raw, "no_bid_dollars")
+        if no_bid is not None:
+            return no_bid
+        yes_ask = KalshiClient._price_field(raw, "yes_ask_dollars")
+        return round(1 - yes_ask, 4) if yes_ask is not None else None
+
+    def _held_contracts(self, ticker):
+        """Signed contracts held on Kalshi (+ = YES, - = NO), 0 if none,
+        None if the positions lookup failed."""
+        path = "/portfolio/positions"
+        try:
+            r = self.session.get(
+                self.BASE_URL + path,
+                headers=self._headers("GET", path),
+                params={"limit": 100},
+                timeout=15,
+            )
+            if r.status_code != 200:
+                return None
+            for pos in r.json().get("market_positions", []):
+                if pos.get("ticker") == ticker:
+                    return float(pos.get("position_fp", 0) or 0)
+            return 0.0
+        except Exception:
+            return None
 
     def _get_ask_price(self, ticker: str, side: str, fallback: float) -> float:
         """Fetch live ask price for a side, with buffer to ensure fills."""
@@ -370,8 +406,29 @@ class KalshiClient:
         if ticker.startswith("DEMO-"):
             print(f"⚠️  Blocked sell on demo ticker {ticker}")
             return False
-        quoted_price = self._get_ask_price(ticker, side.lower(), 0.5)
-        sell_price = max(0.01, quoted_price - 0.04)
+        # Safety: only sell contracts we actually hold on this side. Selling a
+        # side we don't hold opens the opposite position on the YES-only book.
+        held = self._held_contracts(ticker)
+        if held is None:
+            print(f"⚠️  Couldn't check holdings for {ticker} — not selling")
+            return False
+        held_side = "yes" if held > 0 else "no" if held < 0 else None
+        if held_side != side.lower():
+            print(f"⚠️  Not holding {side.upper()} on {ticker} (Kalshi shows {held:g}) — not selling")
+            return False
+        count = min(float(count), abs(held))
+        # Price off the best bid for our side (what buyers pay now), less a
+        # small buffer so the immediate-or-cancel order fills.
+        try:
+            path = f"/markets/{ticker}"
+            r = self.session.get(self.BASE_URL + path, headers=self._headers("GET", path), timeout=10)
+            bid = self._sell_price(r.json().get("market", {}), side.lower()) if r.status_code == 200 else None
+        except Exception:
+            bid = None
+        if bid is None:
+            print(f"Sell skipped for {ticker}: no {side.upper()} bid to sell into")
+            return False
+        sell_price = max(0.01, bid - self.SELL_BUFFER)
         book_side, book_price = self._to_book_order(side, "sell", sell_price)
         try:
             r, payload = self._submit_order_v2(ticker, book_side, count, book_price)
