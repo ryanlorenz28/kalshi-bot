@@ -410,7 +410,7 @@ class AIAnalyzer:
     def _build_prompt(self, market: dict, news: List[Dict], live: dict, poly_sig: dict = None) -> str:
         question  = market.get("question", "")
         yes_price = market.get("outcomes", [{}])[0].get("price", 0.5)
-        no_price  = round(1 - yes_price, 4)
+        no_price  = market.get("outcomes", [{}, {}])[1].get("price", round(1 - yes_price, 4))
         category  = market.get("category", "General")
         days_left = market.get("days_to_resolve", 1)
         volume    = market.get("volume", 0)
@@ -643,6 +643,16 @@ Only recommend YES or NO if you have at least 5% edge AND 60%+ confidence AND a 
             return {**result,
                     "should_trade": False,
                     "reason": f"Confidence {result['confidence']:.0%} below threshold {self.config.MIN_CONFIDENCE_TO_TRADE:.0%}"}
+
+        # NO trades: re-check edge against the real NO price (Claude's EDGE is
+        # relative to YES and ignores the bid/ask spread).
+        if result["outcome_to_buy"] == "No":
+            no_price = market.get("outcomes", [{}, {}])[1].get("price", 1 - yes_price)
+            no_edge  = (1 - result["my_probability"]) - no_price
+            if no_edge < self.config.MIN_EDGE_TO_TRADE:
+                return {**result,
+                        "should_trade": False,
+                        "reason": f"NO edge {no_edge:.1%} at NO price {no_price:.2f} is below {self.config.MIN_EDGE_TO_TRADE:.0%} minimum threshold"}
 
         if result["outcome_to_buy"]:
             result["should_trade"] = True

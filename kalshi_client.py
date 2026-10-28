@@ -217,13 +217,14 @@ class KalshiClient:
             yes_price = float(yes_price)
             if yes_price > 1: yes_price /= 100
             if yes_price <= 0 or yes_price >= 1: yes_price = 0.5
+            no_price = self._no_buy_price(raw, yes_price)
             ticker = raw.get("ticker", "unknown")
             return {
                 "id": ticker,
                 "question": raw.get("title", "Unknown market"),
                 "description": raw.get("rules_primary", ""),
                 "market_type": "binary",
-                "outcomes": [{"name": "Yes", "price": yes_price}, {"name": "No", "price": round(1 - yes_price, 4)}],
+                "outcomes": [{"name": "Yes", "price": yes_price}, {"name": "No", "price": no_price}],
                 "volume": float(raw.get("volume_fp", 0) or 0),
                 "liquidity": float(raw.get("liquidity_dollars", 0) or 0),
                 "days_to_resolve": self._days_until(raw.get("close_time", "")),
@@ -232,6 +233,25 @@ class KalshiClient:
             }
         except Exception:
             return None
+
+    @staticmethod
+    def _no_buy_price(raw, yes_price):
+        """Price to BUY NO: the NO ask, or 1 - YES bid. Not 1 - YES ask,
+        which understates the cost of NO by the bid/ask spread."""
+        def _p(key):
+            try:
+                v = float(raw.get(key) or 0)
+            except (TypeError, ValueError):
+                return None
+            if v > 1: v /= 100
+            return v if 0 < v < 1 else None
+        no_ask = _p("no_ask_dollars")
+        if no_ask is not None:
+            return round(no_ask, 4)
+        yes_bid = _p("yes_bid_dollars")
+        if yes_bid is not None:
+            return round(1 - yes_bid, 4)
+        return round(1 - yes_price, 4)
 
     def _get_ask_price(self, ticker: str, side: str, fallback: float) -> float:
         """Fetch live ask price for a side, with buffer to ensure fills."""

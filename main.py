@@ -309,7 +309,7 @@ def run_cycle(client, analyzer, logger, config, state):
             side_edge        = analysis["edge"]
         else:
             side_probability = 1 - analysis["my_probability"]
-            side_edge        = -analysis["edge"]
+            side_edge        = side_probability - entry_price
 
         logger.info(
             color +
@@ -474,7 +474,7 @@ def main():
     status_server.start(state, client, config)
 
     mode_str = "LIVE" if not config.PAPER_TRADING else "PAPER"
-    logger.info(f"🚀 Bot started in {mode_str} mode [v2.2 — scan 20, smart take-profit, S&P live data]")
+    logger.info(f"🚀 Bot started in {mode_str} mode [v2.3 — real NO price from NO ask / YES bid]")
     logger.info(f"📡 Scanning {config.MARKETS_TO_SCAN} markets every {config.CYCLE_INTERVAL_MINUTES} min")
     if not config.PAPER_TRADING:
         logger.info(f"💵 Real money cap: ${config.REAL_MONEY_LIMIT:.0f}")
