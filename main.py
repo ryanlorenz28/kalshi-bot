@@ -489,7 +489,7 @@ def main():
     status_server.start(state, client, config)
 
     mode_str = "LIVE" if not config.PAPER_TRADING else "PAPER"
-    logger.info(f"🚀 Bot started in {mode_str} mode [v2.5 — count only open positions, money at risk]")
+    logger.info(f"🚀 Bot started in {mode_str} mode [v2.6 — NO order price fallback fix]")
     logger.info(f"📡 Scanning {config.MARKETS_TO_SCAN} markets every {config.CYCLE_INTERVAL_MINUTES} min")
     if not config.PAPER_TRADING:
         logger.info(f"💵 Real money cap: ${config.REAL_MONEY_LIMIT:.0f}")

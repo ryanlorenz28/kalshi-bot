@@ -271,14 +271,10 @@ class KalshiClient:
                     # Add 3¢ buffer above ask to ensure fill
                     return min(0.99, ask + 0.03)
                 else:
-                    # For NO side: no_ask = 1 - yes_bid (best available price to buy NO)
-                    yes_bid = m.get("yes_bid") or m.get("yes_bid_dollars")
-                    if yes_bid:
-                        yes_bid = float(yes_bid)
-                        if yes_bid > 1: yes_bid /= 100
-                        no_ask = 1 - yes_bid
-                    else:
-                        no_ask = 1 - fallback
+                    # For NO side: NO ask, else 1 - YES bid. If neither is
+                    # usable (missing or 0), use fallback as-is: callers pass
+                    # the NO price, so 1 - fallback would be the YES price.
+                    no_ask = self._no_buy_price(m, 1 - fallback)
                     # Add 3¢ buffer to ensure fill
                     return min(0.99, no_ask + 0.03)
         except Exception:
