@@ -113,6 +113,117 @@ def real_money_remaining(state, config) -> float:
     return max(0.0, config.REAL_MONEY_LIMIT - state["real_money_spent"])
 
 
+def kalshi_position_record(client, pos, reasoning):
+    """Build an open_positions record from one Kalshi market_positions entry.
+    Returns (record, kalshi_exposure) or None if it can't be priced."""
+    ticker = pos.get("ticker", "")
+    # market_exposure_dollars = cost of contracts held now (money at
+    # risk). total_traded_dollars is lifetime volume and overcounts.
+    raw_cost = abs(float(pos.get("market_exposure_dollars") or 0))
+    cost = raw_cost
+    # If cost is still 0, estimate from position size and avg price
+    if cost == 0:
+        contracts = max(1, abs(float(pos.get("position_fp", 0) or 0)))
+        avg_price = 0.5
+        cost = round(contracts * avg_price, 2)
+    side = "Yes" if float(pos.get("position_fp", 0) or 0) > 0 else "No"
+    # Use float for contracts — Kalshi V2 endpoint requires count >= 0.01
+    contracts = max(1, abs(float(pos.get("position_fp", 0) or 0)))
+    if not (ticker and cost > 0):
+        return None
+    # Fetch live market data to get accurate days_to_resolve and entry price
+    days = 999
+    entry_price = 0.5  # fallback
+    try:
+        path = f"/markets/{ticker}"
+        r = client.session.get(
+            client.BASE_URL + path,
+            headers=client._headers("GET", path),
+            timeout=10,
+        )
+        if r.status_code == 200:
+            mkt = r.json().get("market", {})
+            close_time = mkt.get("close_time", "")
+            days = client._days_until(close_time)
+            # Calculate real entry price from total cost / contracts
+            if contracts > 0 and cost > 0:
+                entry_price = round(cost / contracts, 4)
+                # Clamp to valid range
+                entry_price = max(0.01, min(0.99, entry_price))
+    except Exception:
+        pass
+    return {
+        "mode":            "LIVE",
+        "series":          ticker.split("-")[0],
+        "market_id":       ticker,
+        "outcome":         side,
+        "cost_usd":        cost,
+        "contracts":       contracts,
+        "entry_price":     entry_price,
+        "days_to_resolve": days,
+        "question":        ticker,
+        "reasoning":       reasoning,
+        "key_risks":       "",
+        "edge":            0,
+        "ai_confidence":   0,
+        "ai_probability":  0.5,
+        "timestamp":       datetime.now().isoformat(),
+        "status":          "open",
+    }, raw_cost
+
+
+def sync_positions(client, logger, state):
+    """Match tracked positions to what Kalshi says we hold right now.
+    Drops ones that settled or were sold elsewhere, adds ones opened elsewhere,
+    refreshes contracts/cost, and resets money at risk to Kalshi's total.
+    If the lookup fails, changes nothing."""
+    positions = client.get_positions_checked()
+    if positions is None:
+        logger.warning("Couldn't sync positions with Kalshi — keeping last known positions")
+        return
+    held = {p.get("ticker"): p for p in positions
+            if p.get("ticker") and float(p.get("position_fp", 0) or 0) != 0}
+    dead = state.setdefault("dead_positions", set())
+    tracked = state["open_positions"]
+    if not held and any(rec.get("mode") == "LIVE" for rec in tracked.values()):
+        logger.warning("Kalshi reports no positions held but the bot tracks some — "
+                       "likely a glitch, keeping last known positions")
+        return
+
+    removed = [t for t, rec in tracked.items() if rec.get("mode") == "LIVE" and t not in held]
+    for t in removed:
+        tracked.pop(t)
+        logger.info(f"  🔄 {t} no longer held on Kalshi (settled or sold) — removed")
+    dead &= set(held)   # forget dead positions once they're gone
+
+    added = []
+    for t, pos in held.items():
+        if t in dead:
+            continue   # held to expiry; don't re-track it every cycle
+        if t in tracked:
+            rec = tracked[t]
+            contracts = abs(float(pos.get("position_fp", 0) or 0))
+            exposure = abs(float(pos.get("market_exposure_dollars") or 0))
+            if exposure > 0 and abs(contracts - float(rec.get("contracts", 0))) > 1e-9:
+                logger.info(f"  🔄 {t}: {rec.get('contracts', 0):g} → {contracts:g} contracts per Kalshi")
+                rec["contracts"]   = contracts
+                rec["cost_usd"]    = exposure
+                rec["entry_price"] = max(0.01, min(0.99, round(exposure / contracts, 4)))
+            continue
+        built = kalshi_position_record(client, pos, "opened outside the bot (found on sync)")
+        if built:
+            tracked[t] = built[0]
+            added.append(t)
+            logger.info(f"  🔄 {t} found on Kalshi but not tracked — added")
+
+    # Money at risk = everything held, including dead positions held to expiry
+    state["real_money_spent"] = round(sum(
+        abs(float(p.get("market_exposure_dollars") or 0)) for p in held.values()), 2)
+    logger.info(f"🔄 Synced with Kalshi: {len(held)} held, {len(tracked)} tracked, "
+                f"${state['real_money_spent']:.2f} at risk"
+                + (f"  (removed {len(removed)}, added {len(added)})" if removed or added else ""))
+
+
 def check_exit_positions(client, logger, config, state):
     """Exit positions that have moved strongly in our favor (lock in profit)
     or are deep losers near expiry (stop loss)."""
@@ -200,6 +311,7 @@ def check_exit_positions(client, logger, config, state):
                     )
                     # Remove from active tracking so we stop checking it every cycle
                     to_remove.append(market_id)
+                    state.setdefault("dead_positions", set()).add(market_id)
                 else:
                     logger.info(
                         Fore.RED +
@@ -229,6 +341,10 @@ def run_cycle(client, analyzer, logger, config, state):
 
     logger.info("=" * 55)
     logger.info("🔄 Starting new trading cycle...")
+
+    # Match tracked positions and money at risk to what Kalshi says we hold
+    if not config.PAPER_TRADING:
+        sync_positions(client, logger, state)
 
     # Check if any existing positions should be exited
     check_exit_positions(client, logger, config, state)
@@ -458,67 +574,19 @@ def main():
             logger.info(f"🔍 Sample position fields: {list(existing[0].keys())}")
         skipped_closed = 0
         for pos in existing:
-            ticker = pos.get("ticker", "")
             # Kalshi also lists markets we've fully exited or that settled
             # (0 contracts held). Those aren't open — don't count them.
             if float(pos.get("position_fp", 0) or 0) == 0:
                 skipped_closed += 1
                 continue
-            # market_exposure_dollars = cost of contracts held now (money at
-            # risk). total_traded_dollars is lifetime volume and overcounts.
-            raw_cost = pos.get("market_exposure_dollars") or 0
-            cost = abs(float(raw_cost or 0))
-            # If cost is still 0, estimate from position size and avg price
-            if cost == 0:
-                contracts = max(1, abs(float(pos.get("position_fp", 0) or 0)))
-                avg_price = 0.5
-                cost = round(contracts * avg_price, 2)
-            side = "Yes" if float(pos.get("position_fp", 0) or 0) > 0 else "No"
-            # Use float for contracts — Kalshi V2 endpoint requires count >= 0.01
-            contracts = max(1, abs(float(pos.get("position_fp", 0) or 0)))
-            if ticker and cost > 0:
-                # Fetch live market data to get accurate days_to_resolve and entry price
-                days = 999
-                entry_price = 0.5  # fallback
-                try:
-                    path = f"/markets/{ticker}"
-                    r = client.session.get(
-                        client.BASE_URL + path,
-                        headers=client._headers("GET", path),
-                        timeout=10,
-                    )
-                    if r.status_code == 200:
-                        mkt = r.json().get("market", {})
-                        close_time = mkt.get("close_time", "")
-                        days = client._days_until(close_time)
-                        # Calculate real entry price from total cost / contracts
-                        if contracts > 0 and cost > 0:
-                            entry_price = round(cost / contracts, 4)
-                            # Clamp to valid range
-                            entry_price = max(0.01, min(0.99, entry_price))
-                except Exception:
-                    pass
-                state["open_positions"][ticker] = {
-                    "mode":            "LIVE",
-                    "series":          ticker.split("-")[0],
-                    "market_id":       ticker,
-                    "outcome":         side,
-                    "cost_usd":        cost,
-                    "contracts":       contracts,
-                    "entry_price":     entry_price,
-                    "days_to_resolve": days,
-                    "question":        ticker,
-                    "reasoning":       "loaded from Kalshi on startup",
-                    "key_risks":       "",
-                    "edge":            0,
-                    "ai_confidence":   0,
-                    "ai_probability":  0.5,
-                    "timestamp":       datetime.now().isoformat(),
-                    "status":          "open",
-                }
-                state["real_money_spent"] += cost
-                logger.info(f"   • {ticker}: {side} x{contracts:g}  cost ${cost:.2f}  "
-                            f"(Kalshi exposure ${abs(float(raw_cost or 0)):.2f})")
+            built = kalshi_position_record(client, pos, "loaded from Kalshi on startup")
+            if built:
+                rec, raw_cost = built
+                ticker = rec["market_id"]
+                state["open_positions"][ticker] = rec
+                state["real_money_spent"] += rec["cost_usd"]
+                logger.info(f"   • {ticker}: {rec['outcome']} x{rec['contracts']:g}  cost ${rec['cost_usd']:.2f}  "
+                            f"(Kalshi exposure ${raw_cost:.2f})")
         if existing:
             logger.info(f"📂 Loaded {len(state['open_positions'])} open positions from Kalshi "
                         f"(${state['real_money_spent']:.2f} at risk) — skipped {skipped_closed} closed "
@@ -541,7 +609,7 @@ def main():
     logger.info(prediction_log.startup_message())
 
     mode_str = "LIVE" if not config.PAPER_TRADING else "PAPER"
-    logger.info(f"🚀 Bot started in {mode_str} mode [v2.9 — daily loss saved on volume]")
+    logger.info(f"🚀 Bot started in {mode_str} mode [v2.10 — sync positions with Kalshi every cycle]")
     logger.info(f"📡 Scanning {config.MARKETS_TO_SCAN} markets every {config.CYCLE_INTERVAL_MINUTES} min")
     if not config.PAPER_TRADING:
         logger.info(f"💵 Real money cap: ${config.REAL_MONEY_LIMIT:.0f}")

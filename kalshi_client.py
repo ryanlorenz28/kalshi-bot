@@ -62,19 +62,38 @@ class KalshiClient:
     # EXISTING POSITIONS
     def get_positions(self) -> list:
         """Fetch all open positions from Kalshi portfolio."""
+        return self.get_positions_checked() or []
+
+    def get_positions_checked(self):
+        """Like get_positions, but None if the lookup failed (vs [] for none
+        held), so a failed call is never mistaken for an empty portfolio.
+        Follows Kalshi's cursor past the first 100."""
         path = "/portfolio/positions"
+        positions, cursor = [], None
         try:
-            r = self.session.get(
-                self.BASE_URL + path,
-                headers=self._headers("GET", path),
-                params={"limit": 100},
-                timeout=15,
-            )
-            if r.status_code == 200:
-                return r.json().get("market_positions", [])
+            for _ in range(10):
+                params = {"limit": 100}
+                if cursor:
+                    params["cursor"] = cursor
+                r = self.session.get(
+                    self.BASE_URL + path,
+                    headers=self._headers("GET", path),
+                    params=params,
+                    timeout=15,
+                )
+                if r.status_code != 200:
+                    print(f"Error fetching positions ({r.status_code})")
+                    return None
+                body = r.json()
+                positions += body.get("market_positions", [])
+                cursor = body.get("cursor")
+                if not cursor:
+                    return positions
+            print("Error fetching positions: too many pages")
+            return None
         except Exception as e:
             print(f"Error fetching positions: {e}")
-        return []
+            return None
 
     # Prefixes for multivariate/parlay-style combo markets that bundle several
     # outcomes into one ticker (e.g. sports parlays). These aren't single

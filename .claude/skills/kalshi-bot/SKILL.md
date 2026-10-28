@@ -101,6 +101,7 @@ Check this list before working in any of these areas.
 - The per-series cap exists because one Tesla series once absorbed $110+ and lost it all. Never weaken it without approval.
 - `fill_count=0` tickers are auto-blacklisted to `auto_blacklist.txt`.
 - The $450 `REAL_MONEY_LIMIT` means **money at risk at once** (Ryan's choice), not lifetime spend. On startup, positions load from Kalshi using `market_exposure_dollars` (cost of contracts held now). Before v2.5 the bot used `total_traded_dollars` (lifetime volume) and also loaded markets with 0 contracts held (sold or settled). That kept the position limit and money caps maxed, so no new trades ran. Take-profit and stop-loss sales both subtract their cost from `real_money_spent`. Dead positions stay counted because they're still held.
+- Each live cycle (v2.10) starts with `sync_positions`. It drops tracked positions Kalshi no longer shows (settled or sold elsewhere), adds ones opened elsewhere, refreshes contract counts and cost, and resets `real_money_spent` to Kalshi's total exposure, dead positions included. A failed lookup, or an empty list while positions are tracked, changes nothing. Dead tickers are remembered in `state['dead_positions']` so they aren't re-added every cycle. Use `get_positions_checked()` (None on failure) for anything that must not mistake a failed call for an empty portfolio.
 
 **Market selection**
 - Guessed tickers (`KXAAPL`, `KXCLIM`, `KXVIX`) silently return nothing and waste the fetch budget.
