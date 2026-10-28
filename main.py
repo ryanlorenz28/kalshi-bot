@@ -143,6 +143,7 @@ def check_exit_positions(client, logger, config, state):
                 if success:
                     loss = (entry_price - current_price) * contracts
                     state["daily_loss"] += max(0, loss)
+                    state["real_money_spent"] = max(0, state["real_money_spent"] - pos.get("cost_usd", 0))
                     to_remove.append(market_id)
 
             # Hard stop: down 70%+ regardless of time — position has gone very wrong
@@ -167,6 +168,7 @@ def check_exit_positions(client, logger, config, state):
                     if success:
                         loss = (entry_price - current_price) * contracts
                         state["daily_loss"] += max(0, loss)
+                        state["real_money_spent"] = max(0, state["real_money_spent"] - pos.get("cost_usd", 0))
                         to_remove.append(market_id)
 
         except Exception as e:
@@ -403,14 +405,17 @@ def main():
         if existing:
             # Log first position's raw fields so we can verify cost field name
             logger.info(f"🔍 Sample position fields: {list(existing[0].keys())}")
+        skipped_closed = 0
         for pos in existing:
             ticker = pos.get("ticker", "")
-            # Kalshi returns cost in dollars under total_traded_dollars
-            raw_cost = (
-                pos.get("total_traded_dollars") or
-                pos.get("market_exposure_dollars") or
-                0
-            )
+            # Kalshi also lists markets we've fully exited or that settled
+            # (0 contracts held). Those aren't open — don't count them.
+            if float(pos.get("position_fp", 0) or 0) == 0:
+                skipped_closed += 1
+                continue
+            # market_exposure_dollars = cost of contracts held now (money at
+            # risk). total_traded_dollars is lifetime volume and overcounts.
+            raw_cost = pos.get("market_exposure_dollars") or 0
             cost = abs(float(raw_cost or 0))
             # If cost is still 0, estimate from position size and avg price
             if cost == 0:
@@ -462,7 +467,9 @@ def main():
                 }
                 state["real_money_spent"] += cost
         if existing:
-            logger.info(f"📂 Loaded {len(existing)} existing positions from Kalshi (${state['real_money_spent']:.2f} spent)")
+            logger.info(f"📂 Loaded {len(state['open_positions'])} open positions from Kalshi "
+                        f"(${state['real_money_spent']:.2f} at risk) — skipped {skipped_closed} closed "
+                        f"of {len(existing)} listed")
         else:
             logger.info("📂 No existing positions found on Kalshi")
 
@@ -480,7 +487,7 @@ def main():
     status_server.start(state, client, config)
 
     mode_str = "LIVE" if not config.PAPER_TRADING else "PAPER"
-    logger.info(f"🚀 Bot started in {mode_str} mode [v2.4 — 10% Kelly sizing on real edge, skip under $3]")
+    logger.info(f"🚀 Bot started in {mode_str} mode [v2.5 — count only open positions, money at risk]")
     logger.info(f"📡 Scanning {config.MARKETS_TO_SCAN} markets every {config.CYCLE_INTERVAL_MINUTES} min")
     if not config.PAPER_TRADING:
         logger.info(f"💵 Real money cap: ${config.REAL_MONEY_LIMIT:.0f}")

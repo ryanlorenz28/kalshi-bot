@@ -98,6 +98,7 @@ Check this list before working in any of these areas.
 - Dead positions (down 70%+ and price < $0.10) are removed from active tracking and never sold. Repeated sells on illiquid near-zero contracts just waste cycles. `KXFED-27APR-T4.00` is a known dead position; leave it.
 - The per-series cap exists because one Tesla series once absorbed $110+ and lost it all. Never weaken it without approval.
 - `fill_count=0` tickers are auto-blacklisted to `auto_blacklist.txt`.
+- The $450 `REAL_MONEY_LIMIT` means **money at risk at once** (Ryan's choice), not lifetime spend. On startup, positions load from Kalshi using `market_exposure_dollars` (cost of contracts held now). Before v2.5 the bot used `total_traded_dollars` (lifetime volume) and also loaded markets with 0 contracts held (sold or settled). That kept the position limit and money caps maxed, so no new trades ran. Take-profit and stop-loss sales both subtract their cost from `real_money_spent`. Dead positions stay counted because they're still held.
 
 **Market selection**
 - Guessed tickers (`KXAAPL`, `KXCLIM`, `KXVIX`) silently return nothing and waste the fetch budget.
