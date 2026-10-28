@@ -118,6 +118,7 @@ Check this list before working in any of these areas.
 - Cached builds: see workflow step 10.
 - `status_server.py` must use `int(os.environ.get("PORT", 8080))`; a hardcoded port gave a 404.
 - Redeploys wipe in-process state. Anything that must survive goes in a file or external store.
+- Durable storage is a Railway volume at `$DATA_DIR` (`/data`). `prediction_log.py` (v2.8) writes every Claude prediction to `$DATA_DIR/predictions.jsonl` and settlements to `results.json`, then scores Claude vs the market mid price every 6h (logs + `/status` → `predictions`). `trades.csv` and `daily_loss` are still in-container and get wiped on redeploy.
 
 ---
 
