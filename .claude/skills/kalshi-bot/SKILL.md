@@ -120,7 +120,7 @@ Check this list before working in any of these areas.
 - `status_server.py` must use `int(os.environ.get("PORT", 8080))`; a hardcoded port gave a 404.
 - Redeploys wipe in-process state. Anything that must survive goes in a file or external store.
 - Durable storage is a Railway volume at `$DATA_DIR` (`/data`). `prediction_log.py` (v2.8) writes every Claude prediction to `$DATA_DIR/predictions.jsonl` and settlements to `results.json`, then scores Claude vs the market mid price every 6h (logs + `/status` → `predictions`). Today's realized losses (`daily_loss`) are saved to `$DATA_DIR/daily_loss.json` (v2.9) and restored on startup if the date matches, so redeploys don't reset the $50 limit. The day is the container's date (UTC). `trades.csv` is still in-container and gets wiped on redeploy.
-- When the daily loss limit is hit, `run_cycle` returns before `check_exit_positions`, so stop-losses also pause for the rest of the day. That's existing behavior, not changed.
+- When the daily loss limit is hit (v2.11+), only new trades stop. Sync, stop-losses and take-profits still run every cycle, and realized losses can push `daily_loss` past $50. Before v2.11 the whole cycle stopped, exits included.
 
 ---
 

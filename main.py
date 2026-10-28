@@ -56,7 +56,7 @@ def check_daily_loss_limit(state, config, logger) -> bool:
     if state["daily_loss"] >= config.DAILY_LOSS_LIMIT:
         logger.warning(
             f"🛑 DAILY LOSS LIMIT HIT (${state['daily_loss']:.2f} >= "
-            f"${config.DAILY_LOSS_LIMIT:.2f}). Bot halted for today."
+            f"${config.DAILY_LOSS_LIMIT:.2f}). New trades halted for today — stop-losses still running."
         )
         return False
     return True
@@ -336,9 +336,6 @@ def check_exit_positions(client, logger, config, state):
 def run_cycle(client, analyzer, logger, config, state):
     reset_daily_state_if_new_day(state)
 
-    if not check_daily_loss_limit(state, config, logger):
-        return
-
     logger.info("=" * 55)
     logger.info("🔄 Starting new trading cycle...")
 
@@ -352,6 +349,11 @@ def run_cycle(client, analyzer, logger, config, state):
 
     # Score settled predictions (every 6h; read-only, never blocks trading)
     prediction_log.score(client, logger)
+
+    # Daily loss limit stops new trades only — sync, stop-losses and
+    # take-profits above keep running so open positions are still managed.
+    if not check_daily_loss_limit(state, config, logger):
+        return
 
     if not config.PAPER_TRADING:
         remaining = real_money_remaining(state, config)
@@ -609,7 +611,7 @@ def main():
     logger.info(prediction_log.startup_message())
 
     mode_str = "LIVE" if not config.PAPER_TRADING else "PAPER"
-    logger.info(f"🚀 Bot started in {mode_str} mode [v2.10 — sync positions with Kalshi every cycle]")
+    logger.info(f"🚀 Bot started in {mode_str} mode [v2.11 — stop-losses keep running after daily limit]")
     logger.info(f"📡 Scanning {config.MARKETS_TO_SCAN} markets every {config.CYCLE_INTERVAL_MINUTES} min")
     if not config.PAPER_TRADING:
         logger.info(f"💵 Real money cap: ${config.REAL_MONEY_LIMIT:.0f}")
