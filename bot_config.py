@@ -41,6 +41,7 @@ class BotConfig:
     MAX_EXPOSURE_PER_SERIES = 30.00      # max $ spent on any single company/topic
     KELLY_FRACTION          = 0.10       # 10% Kelly (was 0.25)
     FILL_BUFFER             = 0.03       # place_order pays the ask + 3¢; size on that price
+    KALSHI_FEE_RATE         = 0.07       # taker fee per contract = rate × price × (1 − price)
 
     # ─── POSITION MANAGER ─────────────────────────────────────
     TAKE_PROFIT_PCT      = 0.40   # lowered from 50% — exit when up 40%
@@ -76,6 +77,7 @@ class BotConfig:
         Returns 0.0 (skip the trade) when there's no edge or the bet would be
         under MIN_BET_SIZE."""
         cost = min(0.99, price + self.FILL_BUFFER)
+        cost += self.KALSHI_FEE_RATE * cost * (1 - cost)   # Kalshi's fee is paid per contract on top
         kelly = (win_prob - cost) / (1 - cost)
         if kelly <= 0:
             return 0.0

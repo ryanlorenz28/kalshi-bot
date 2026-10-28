@@ -13,7 +13,7 @@ Ryan owns the bot and has no prior coding experience. He approves changes; you e
 
 ## 1. What the bot does
 
-A Python bot that uses Claude (`claude-sonnet-4-6`) to analyze binary Kalshi macro prediction markets (jobs, Fed, GDP, CPI, crypto, equities, commodities, a few misc events) and place trades when it finds enough edge. Sizing (`bot_config.bet_size`, v2.4+) is 10% Kelly on the real edge: Claude's probability for the side being bought versus that side's price plus the 3¢ fill buffer. The bet is capped at 10% of balance and $15, and the trade is skipped when the math says under $3.
+A Python bot that uses Claude (`claude-sonnet-4-6`) to analyze binary Kalshi macro prediction markets (jobs, Fed, GDP, CPI, crypto, equities, commodities, a few misc events) and place trades when it finds enough edge. Sizing (`bot_config.bet_size`, v2.4+) is 10% Kelly on the real edge: Claude's probability for the side being bought versus that side's price plus the 3¢ fill buffer plus Kalshi's taker fee (`KALSHI_FEE_RATE` 0.07 × cost × (1 − cost), v2.12; 0.07 is applied to every series, which is conservative if some series are cheaper). The bet is capped at 10% of balance and $15, and the trade is skipped when the math says under $3.
 
 | File | Role |
 |---|---|
@@ -92,6 +92,7 @@ Check this list before working in any of these areas.
 - Before v2.4, size came from Claude's *confidence* versus 50%, ignoring the market price, so nearly every trade hit the $15 max. Size must come from the side's probability versus the price actually paid.
 - With a ~$160 balance, 10% Kelly needs roughly 12+ points of edge (after the 3¢ buffer) to clear the $3 minimum. Few trades placed is expected, not a bug.
 - `place_order` rounds contracts down, so actual cost can land a few cents under the sized amount.
+- The 5% `MIN_EDGE_TO_TRADE` check and the dollar caps still ignore fees (about 1–2¢ per contract). Ryan chose to leave those until the prediction log shows whether Claude's edges are real.
 - Any change touching side logic needs a dry-run check of one YES trade and one NO trade.
 
 **Risk logic**

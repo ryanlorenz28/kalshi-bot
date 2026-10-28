@@ -611,7 +611,7 @@ def main():
     logger.info(prediction_log.startup_message())
 
     mode_str = "LIVE" if not config.PAPER_TRADING else "PAPER"
-    logger.info(f"🚀 Bot started in {mode_str} mode [v2.11 — stop-losses keep running after daily limit]")
+    logger.info(f"🚀 Bot started in {mode_str} mode [v2.12 — Kalshi fees in bet sizing]")
     logger.info(f"📡 Scanning {config.MARKETS_TO_SCAN} markets every {config.CYCLE_INTERVAL_MINUTES} min")
     if not config.PAPER_TRADING:
         logger.info(f"💵 Real money cap: ${config.REAL_MONEY_LIMIT:.0f}")
