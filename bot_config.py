@@ -68,7 +68,7 @@ class BotConfig:
     # ─── RESTING (MAKER) BUY ORDERS — trial, off by default ────
     # Buy at/near the bid with a post-only order that waits on the book, instead of
     # paying the ask + 3¢. Sells (stop-loss / take-profit) always stay immediate.
-    MAKER_ORDERS             = False
+    MAKER_ORDERS             = True     # trial started Nov 2026 (Ryan approved), 1 waiting order at a time
     MAKER_EXPIRY_MIN         = 120    # unfilled orders expire after 2 hours
     MAKER_MAX_RESTING        = 1      # at most this many waiting orders at once
     MAKER_IMPROVE_MIN_SPREAD = 0.03   # bid +1¢ when the spread is at least 3¢, else join the bid

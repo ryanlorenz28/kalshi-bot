@@ -663,7 +663,7 @@ def main():
         logger.warning("FRED_API_KEY not set — jobs/Fed/GDP/CPI live data will show as unavailable")
 
     mode_str = "LIVE" if not config.PAPER_TRADING else "PAPER"
-    logger.info(f"🚀 Bot started in {mode_str} mode [v2.18 — waiting buy orders at the bid (off by default)]")
+    logger.info(f"🚀 Bot started in {mode_str} mode [v2.19 — waiting buy order trial ON (max 1)]")
     logger.info(f"📡 Scanning {config.MARKETS_TO_SCAN} markets every {config.CYCLE_INTERVAL_MINUTES} min")
     if not config.PAPER_TRADING:
         logger.info(f"💵 Real money cap: ${config.REAL_MONEY_LIMIT:.0f}")
