@@ -62,6 +62,8 @@ class BotConfig:
     CACHE_TTL_NEAR_MIN = 30      # markets resolving within 1 day: re-ask after 30 min
     CACHE_TTL_WEEK_MIN = 120     # resolving within 7 days: after 2 hours
     CACHE_TTL_FAR_MIN  = 360     # everything else (and macro series): after 6 hours
+    CACHE_NO_EDGE_BELOW   = 0.02  # last answer was SKIP with under 2% edge, and resolves >7 days out:
+    CACHE_TTL_NO_EDGE_MIN = 1440  #   reuse it for 24 hours (price moves / FRED releases still re-ask)
 
     # ─── LOGGING ──────────────────────────────────────────────
     LOG_TO_FILE    = True

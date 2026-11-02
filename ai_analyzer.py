@@ -718,7 +718,7 @@ Only recommend YES or NO if you have at least {self.config.MIN_EDGE_TO_TRADE:.0%
             return "" if "unavailable this cycle" in data else data
         return ""
 
-    def _ttl_minutes(self, market: dict) -> float:
+    def _ttl_minutes(self, market: dict, entry: dict = None) -> float:
         cfg  = self.config
         days = market.get("days_to_resolve", 999)
         near = getattr(cfg, "CACHE_TTL_NEAR_MIN", 30)    # resolves within a day
@@ -728,6 +728,14 @@ Only recommend YES or NO if you have at least {self.config.MIN_EDGE_TO_TRADE:.0%
         # Macro markets only move on data releases, which the fingerprint check catches
         if self._is_macro(market) and days > 1:
             ttl = max(ttl, far)
+        # Claude said SKIP with almost no edge last time: a market more than a week
+        # out rarely changes without a 3¢ price move or data release (both still re-ask)
+        if entry is not None and days > 7:
+            f = entry.get("fields", {})
+            if (f.get("outcome_to_buy") is None
+                    and abs(f.get("my_probability", 0.5) - entry["yes_price"])
+                        < getattr(cfg, "CACHE_NO_EDGE_BELOW", 0.02)):
+                ttl = max(ttl, getattr(cfg, "CACHE_TTL_NO_EDGE_MIN", 1440))
         return ttl
 
     def _cache_lookup(self, market: dict):
@@ -739,7 +747,7 @@ Only recommend YES or NO if you have at least {self.config.MIN_EDGE_TO_TRADE:.0%
         yes_price = market.get("outcomes", [{}])[0].get("price", 0.5)
         if abs(yes_price - entry["yes_price"]) >= getattr(self.config, "CACHE_PRICE_MOVE", 0.03):
             return None
-        if (time.time() - entry["ts"]) / 60 >= self._ttl_minutes(market):
+        if (time.time() - entry["ts"]) / 60 >= self._ttl_minutes(market, entry):
             return None
         return entry
 
