@@ -53,6 +53,15 @@ class BotConfig:
     MAX_TOKENS             = 1500
     NEWS_ARTICLES_TO_FETCH = 3
 
+    # ─── DECISION CACHE (cuts Claude API cost) ────────────────
+    # Claude is only re-asked about a market when its price moves, the answer gets old,
+    # or (macro series) new FRED data is released. Set CACHE_ENABLED = False to turn off.
+    CACHE_ENABLED      = True
+    CACHE_PRICE_MOVE   = 0.03    # re-ask if the YES price moves 3 cents or more
+    CACHE_TTL_NEAR_MIN = 30      # markets resolving within 1 day: re-ask after 30 min
+    CACHE_TTL_WEEK_MIN = 120     # resolving within 7 days: after 2 hours
+    CACHE_TTL_FAR_MIN  = 360     # everything else (and macro series): after 6 hours
+
     # ─── LOGGING ──────────────────────────────────────────────
     LOG_TO_FILE    = True
     LOG_FILE       = "bot_log.txt"

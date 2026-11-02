@@ -14,6 +14,7 @@ import re
 import requests
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
+import time
 import anthropic
 from polymarket_signal import PolymarketSignal
 
@@ -54,14 +55,37 @@ class AIAnalyzer:
         self.client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
         self.today  = datetime.now(timezone.utc).strftime("%B %d, %Y")
         self.poly   = PolymarketSignal()
+
+        # Decision cache + usage counters (see _cache_lookup / pop_stats)
+        self._cache      = {}
+        self.cycle_calls = self.cycle_hits = self.cycle_in = self.cycle_out = 0
+        self.total_calls = self.total_hits = 0
         self._live_data_cache = {}  # cache live data per cycle to avoid redundant fetches
 
     def analyze_market(self, market: dict) -> dict:
-        """Full analysis pipeline for one market."""
+        """Full analysis pipeline for one market, with a decision cache.
+
+        Claude is only called when there is no usable earlier answer. An earlier
+        answer is reused while: the YES price has moved less than CACHE_PRICE_MOVE,
+        it is younger than its time limit (shorter as resolution gets closer), and —
+        for macro series — the underlying FRED data has not changed (i.e. no new release).
+        """
         try:
-            news     = self._fetch_news(market)
-            live     = self._fetch_live_data(market)
-            # Pre-fetch Polymarket signal — isolated so any failure never kills analysis
+            live  = None
+            entry = self._cache_lookup(market)
+            if entry is not None and self._is_macro(market):
+                live   = self._fetch_live_data(market)
+                fp_now = self._fingerprint(live)
+                # If the data fetch failed (empty), keep the cached answer rather than pay to re-ask
+                if fp_now and fp_now != entry.get("fp"):
+                    entry = None
+            if entry is not None:
+                return self._decision_from_cache(entry, market)
+
+            news = self._fetch_news(market)
+            if live is None:
+                live = self._fetch_live_data(market)
+            # Polymarket signal — isolated so any failure never kills analysis
             try:
                 poly_sig = self.poly.get_signal(
                     market.get("question", ""),
@@ -71,9 +95,10 @@ class AIAnalyzer:
                 poly_sig = {"signal": "NEUTRAL", "detail": "Polymarket signal unavailable"}
             prompt   = self._build_prompt(market, news, live, poly_sig)
             raw      = self._call_claude(prompt)
-            decision = self._parse(raw, market)
-            # Attach signal to decision for logging
+            fields   = self._parse_fields(raw)
+            decision = self._apply_rules(dict(fields), market)
             decision["poly_signal"] = poly_sig.get("signal", "NEUTRAL")
+            self._cache_store(market, raw, fields, live, poly_sig)
             return decision
         except Exception as e:
             self.logger.error(f"Analysis error: {e}")
@@ -580,11 +605,20 @@ Only recommend YES or NO if you have at least 5% edge AND 60%+ confidence AND a 
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": prompt}],
         )
+        self.cycle_calls += 1
+        self.total_calls += 1
+        usage = getattr(message, "usage", None)
+        if usage is not None:
+            self.cycle_in  += getattr(usage, "input_tokens", 0) or 0
+            self.cycle_out += getattr(usage, "output_tokens", 0) or 0
         return message.content[0].text
 
     # ─── RESPONSE PARSING ────────────────────────────────────────────────────
 
     def _parse(self, text: str, market: dict) -> dict:
+        return self._apply_rules(self._parse_fields(text), market)
+
+    def _parse_fields(self, text: str) -> dict:
         lines  = text.strip().split("\n")
         result = {
             "should_trade":   False,
@@ -626,6 +660,10 @@ Only recommend YES or NO if you have at least 5% edge AND 60%+ confidence AND a 
         result["confidence"]     = max(0.0, min(1.0, result["confidence"]))
         result["my_probability"] = max(0.0, min(1.0, result["my_probability"]))
 
+        return result
+
+    def _apply_rules(self, result: dict, market: dict) -> dict:
+        """Safety rules + thresholds. Shared by fresh answers and cached ones."""
         # ── SAFETY RULES ──────────────────────────────────────────────────────
         yes_price = market.get("outcomes", [{}])[0].get("price", 0.5)
 
@@ -661,6 +699,93 @@ Only recommend YES or NO if you have at least 5% edge AND 60%+ confidence AND a 
             result["reason"] = "Claude recommended SKIP"
 
         return result
+
+    # ─── DECISION CACHE ──────────────────────────────────────────────────────
+
+    MACRO_PREFIXES = ("KXPAYROLLS", "KXU3", "KXFED", "KXRATECUTCOUNT",
+                      "KXGDP", "KXCPI", "KXPCE")
+
+    def _is_macro(self, market: dict) -> bool:
+        return str(market.get("id", "")).split("-")[0].startswith(self.MACRO_PREFIXES)
+
+    @staticmethod
+    def _fingerprint(live) -> str:
+        """Short signature of the live data. FRED data only changes on a new release."""
+        if isinstance(live, dict):
+            return str(live.get("data", "") or "")
+        return ""
+
+    def _ttl_minutes(self, market: dict) -> float:
+        cfg  = self.config
+        days = market.get("days_to_resolve", 999)
+        near = getattr(cfg, "CACHE_TTL_NEAR_MIN", 30)    # resolves within a day
+        week = getattr(cfg, "CACHE_TTL_WEEK_MIN", 120)   # resolves within a week
+        far  = getattr(cfg, "CACHE_TTL_FAR_MIN", 360)    # everything else
+        ttl  = near if days <= 1 else (week if days <= 7 else far)
+        # Macro markets only move on data releases, which the fingerprint check catches
+        if self._is_macro(market) and days > 1:
+            ttl = max(ttl, far)
+        return ttl
+
+    def _cache_lookup(self, market: dict):
+        if not getattr(self.config, "CACHE_ENABLED", True):
+            return None
+        entry = self._cache.get(market.get("id"))
+        if not entry:
+            return None
+        yes_price = market.get("outcomes", [{}])[0].get("price", 0.5)
+        if abs(yes_price - entry["yes_price"]) >= getattr(self.config, "CACHE_PRICE_MOVE", 0.03):
+            return None
+        if (time.time() - entry["ts"]) / 60 >= self._ttl_minutes(market):
+            return None
+        return entry
+
+    @staticmethod
+    def _looks_valid(raw: str) -> bool:
+        lines = raw.strip().split("\n")
+        return (any(l.startswith("MY_PROBABILITY:") for l in lines)
+                and any(l.startswith("CONFIDENCE:") for l in lines))
+
+    def _cache_store(self, market, raw, fields, live, poly_sig):
+        """Remember Claude's answer — only if it was well-formed."""
+        if not getattr(self.config, "CACHE_ENABLED", True) or not self._looks_valid(raw):
+            return
+        if len(self._cache) >= 500:
+            oldest = min(self._cache, key=lambda k: self._cache[k]["ts"])
+            del self._cache[oldest]
+        self._cache[market["id"]] = {
+            "ts":          time.time(),
+            "yes_price":   market.get("outcomes", [{}])[0].get("price", 0.5),
+            "fields":      dict(fields),
+            "fp":          self._fingerprint(live),
+            "poly_signal": poly_sig.get("signal", "NEUTRAL"),
+        }
+
+    def _decision_from_cache(self, entry: dict, market: dict) -> dict:
+        """Re-apply today's price and thresholds to Claude's earlier probability."""
+        yes_price = market.get("outcomes", [{}])[0].get("price", 0.5)
+        result = dict(entry["fields"])
+        result["edge"] = result["my_probability"] - yes_price   # recomputed vs the current price
+        decision = self._apply_rules(result, market)
+        # _apply_rules only checks |edge|; a YES trade must have a positive edge today
+        if (decision.get("should_trade") and decision.get("outcome_to_buy") == "Yes"
+                and result["edge"] < self.config.MIN_EDGE_TO_TRADE):
+            decision = {**decision, "should_trade": False,
+                        "reason": f"YES edge {result['edge']:+.1%} at current price is below "
+                                  f"{self.config.MIN_EDGE_TO_TRADE:.0%} minimum threshold"}
+        decision["poly_signal"] = entry.get("poly_signal", "NEUTRAL")
+        decision["cached"] = True
+        self.cycle_hits += 1
+        self.total_hits += 1
+        return decision
+
+    def pop_stats(self) -> dict:
+        """Return this cycle's Claude usage and reset the per-cycle counters."""
+        stats = {"calls": self.cycle_calls, "hits": self.cycle_hits,
+                 "in_tokens": self.cycle_in, "out_tokens": self.cycle_out,
+                 "total_calls": self.total_calls, "total_hits": self.total_hits}
+        self.cycle_calls = self.cycle_hits = self.cycle_in = self.cycle_out = 0
+        return stats
 
     # ─── HELPERS ─────────────────────────────────────────────────────────────
 

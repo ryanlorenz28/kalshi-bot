@@ -407,11 +407,12 @@ def run_cycle(client, analyzer, logger, config, state):
 
         logger.info(f"\n🤖 [{i+1}/{len(markets)}] {market['question'][:65]}...")
         analysis = analyzer.analyze_market(market)
-        if "my_probability" in analysis:   # not on analysis errors
+        if "my_probability" in analysis and not analysis.get("cached"):   # fresh Claude answers only
             prediction_log.record("analysis", market, analysis)
 
         if not analysis.get("should_trade"):
-            logger.info(f"  ⏭️  Skip: {analysis.get('reason', 'low confidence')}")
+            cached_tag = " (cached)" if analysis.get("cached") else ""
+            logger.info(f"  ⏭️  Skip: {analysis.get('reason', 'low confidence')}{cached_tag}")
             time.sleep(config.DELAY_BETWEEN_ANALYSES)
             continue
 
@@ -537,6 +538,13 @@ def run_cycle(client, analyzer, logger, config, state):
         )
     else:
         logger.info(f"\n📊 Open positions: {open_count}")
+    if hasattr(analyzer, "pop_stats"):
+        s = analyzer.pop_stats()
+        logger.info(
+            f"🧮 Claude calls this cycle: {s['calls']}  |  answered from cache: {s['hits']}  |  "
+            f"tokens in/out: {s['in_tokens']:,}/{s['out_tokens']:,}  |  "
+            f"since start: {s['total_calls']} calls, {s['total_hits']} cached"
+        )
     logger.info(f"⏰ Next cycle in {config.CYCLE_INTERVAL_MINUTES} minutes...\n")
 
 
@@ -611,7 +619,7 @@ def main():
     logger.info(prediction_log.startup_message())
 
     mode_str = "LIVE" if not config.PAPER_TRADING else "PAPER"
-    logger.info(f"🚀 Bot started in {mode_str} mode [v2.12 — Kalshi fees in bet sizing]")
+    logger.info(f"🚀 Bot started in {mode_str} mode [v2.13 — decision cache + Kalshi fees in bet sizing]")
     logger.info(f"📡 Scanning {config.MARKETS_TO_SCAN} markets every {config.CYCLE_INTERVAL_MINUTES} min")
     if not config.PAPER_TRADING:
         logger.info(f"💵 Real money cap: ${config.REAL_MONEY_LIMIT:.0f}")
