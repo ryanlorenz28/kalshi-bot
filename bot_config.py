@@ -14,6 +14,7 @@ class BotConfig:
     KALSHI_API_KEY_ID      = os.getenv("KALSHI_API_KEY_ID", "")
     KALSHI_API_PRIVATE_KEY = os.getenv("KALSHI_API_PRIVATE_KEY", "")
     NEWS_API_KEY           = os.getenv("NEWS_API_KEY", "")   # optional — bot works without it
+    FRED_API_KEY           = os.getenv("FRED_API_KEY", "")   # jobs/Fed/GDP/CPI live data; without it those show "unavailable"
 
     # ─── TRADING MODE ─────────────────────────────────────────
     # Set PAPER_TRADING = False to enable real orders.

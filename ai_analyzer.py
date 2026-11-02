@@ -141,7 +141,7 @@ class AIAnalyzer:
                 "https://api.stlouisfed.org/fred/series/observations",
                 params={
                     "series_id": "CPIAUCSL",
-                    "api_key": "c8c86c85cf4040aba6c4f21a0aabc4f3",  # public demo key
+                    "api_key": self.config.FRED_API_KEY,
                     "file_type": "json",
                     "limit": 3,
                     "sort_order": "desc",
@@ -179,7 +179,7 @@ class AIAnalyzer:
                 "https://api.stlouisfed.org/fred/series/observations",
                 params={
                     "series_id": "A191RL1Q225SBEA",  # real GDP, % change, annualized
-                    "api_key": "c8c86c85cf4040aba6c4f21a0aabc4f3",  # public demo key
+                    "api_key": self.config.FRED_API_KEY,
                     "file_type": "json",
                     "limit": 2,
                     "sort_order": "desc",
@@ -214,7 +214,7 @@ class AIAnalyzer:
                 "https://api.stlouisfed.org/fred/series/observations",
                 params={
                     "series_id": "DFEDTARU",  # upper bound of fed funds target range
-                    "api_key": "c8c86c85cf4040aba6c4f21a0aabc4f3",  # public demo key
+                    "api_key": self.config.FRED_API_KEY,
                     "file_type": "json",
                     "limit": 1,
                     "sort_order": "desc",
@@ -252,7 +252,7 @@ class AIAnalyzer:
                 "https://api.stlouisfed.org/fred/series/observations",
                 params={
                     "series_id": "UNRATE",
-                    "api_key": "c8c86c85cf4040aba6c4f21a0aabc4f3",  # public demo key
+                    "api_key": self.config.FRED_API_KEY,
                     "file_type": "json",
                     "limit": 1,
                     "sort_order": "desc",
@@ -263,7 +263,7 @@ class AIAnalyzer:
                 "https://api.stlouisfed.org/fred/series/observations",
                 params={
                     "series_id": "PAYEMS",
-                    "api_key": "c8c86c85cf4040aba6c4f21a0aabc4f3",  # public demo key
+                    "api_key": self.config.FRED_API_KEY,
                     "file_type": "json",
                     "limit": 2,
                     "sort_order": "desc",
