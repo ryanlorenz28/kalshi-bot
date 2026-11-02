@@ -201,7 +201,15 @@ def manage(client, state, logger, config):
     for ticker, o in list(resting(state).items()):
         order = client.get_order(o["order_id"])
         if order is None:
-            logger.warning(f"Couldn't check waiting order on {ticker} — will retry next cycle")
+            if time.time() > o["expires_ts"] + 600:
+                # Kalshi has expired it by now; don't let an unreadable order block
+                # new buys forever. Any fill still shows up via the position sync.
+                client.cancel_order(o["order_id"], ticker)
+                logger.warning(f"Couldn't check waiting order on {ticker}; past expiry — dropped it")
+                resting(state).pop(ticker, None)
+                changed = True
+            else:
+                logger.warning(f"Couldn't check waiting order on {ticker} — will retry next cycle")
             continue
         filled    = float(order.get("fill_count_fp", "0") or "0")
         remaining = float(order.get("remaining_count_fp", "0") or "0")
