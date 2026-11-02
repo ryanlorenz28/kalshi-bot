@@ -114,6 +114,7 @@ Check this list before working in any of these areas.
 - No free live feed exists for Tesla deliveries/production, which is why that series is out.
 - A mid-cycle "likely losing" read can be wrong (a GDP position called a loser paid +115%). Don't recommend selling on a hunch.
 - Don't hardcode release dates (a stale CPI date was removed from the analyzer).
+- Decision cache (v2.13+, `ai_analyzer.py`): Claude is only re-asked when the YES price moves 3¢+, the answer ages out (30 min within 1 day of resolution, 2h within a week, else 6h), or, for macro series, the FRED data changes (a new release). Cached answers are re-run through `_apply_rules` against today's prices, so stale trades get blocked, and they are not re-logged to the prediction log. An "unavailable this cycle" FRED fallback counts as no data, so outages keep the cached answer (v2.14). `CACHE_ENABLED = False` in `bot_config.py` turns it off. Each cycle logs `🧮 Claude calls this cycle: ...` with token counts.
 
 **Railway**
 - Railway once watched `master` while edits went to `main`, so deploys silently didn't happen. If changes don't show up, check the deploy branch first.

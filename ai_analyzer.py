@@ -710,9 +710,12 @@ Only recommend YES or NO if you have at least 5% edge AND 60%+ confidence AND a 
 
     @staticmethod
     def _fingerprint(live) -> str:
-        """Short signature of the live data. FRED data only changes on a new release."""
+        """Short signature of the live data. FRED data only changes on a new release.
+        A failed fetch returns "" (the fallback text says "unavailable this cycle"),
+        so an outage keeps the cached answer instead of re-asking."""
         if isinstance(live, dict):
-            return str(live.get("data", "") or "")
+            data = str(live.get("data", "") or "")
+            return "" if "unavailable this cycle" in data else data
         return ""
 
     def _ttl_minutes(self, market: dict) -> float:
