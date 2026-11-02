@@ -92,7 +92,7 @@ Check this list before working in any of these areas.
 - Before v2.4, size came from Claude's *confidence* versus 50%, ignoring the market price, so nearly every trade hit the $15 max. Size must come from the side's probability versus the price actually paid.
 - With a ~$160 balance, 10% Kelly needs roughly 12+ points of edge (after the 3¢ buffer) to clear the $3 minimum. Few trades placed is expected, not a bug.
 - `place_order` rounds contracts down, so actual cost can land a few cents under the sized amount.
-- The 5% `MIN_EDGE_TO_TRADE` check and the dollar caps still ignore fees (about 1–2¢ per contract). Ryan chose to leave those until the prediction log shows whether Claude's edges are real.
+- `MIN_EDGE_TO_TRADE` is 8% (v2.16, raised from 5% with Ryan's approval) because fees plus the 3¢ buffer ate most of a 5% edge. The prompt reads the value from config, so Claude is told the same threshold. At a ~$160 balance the $3 minimum bet already needs 7–18 points of edge, so this mostly matters once the balance grows. The dollar caps still ignore fees.
 - Any change touching side logic needs a dry-run check of one YES trade and one NO trade.
 
 **Risk logic**

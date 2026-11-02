@@ -514,7 +514,7 @@ STEP-BY-STEP REASONING REQUIRED:
   Step 2 — LIVE DATA CHECK: Does the live data above directly answer or constrain the probability?
   Step 3 — NEWS IMPACT: Does the news actually change the probability, or is it already priced in?
   Step 4 — RESOLUTION CHECK: How exactly does this Kalshi market resolve?
-  Step 5 — EDGE CHECK: Is my estimate different from the market by at least 6%? Why is the crowd wrong?
+  Step 5 — EDGE CHECK: Is my estimate different from the market by at least {self.config.MIN_EDGE_TO_TRADE:.0%}? Why is the crowd wrong?
   Step 6 — CONFIDENCE CHECK: Am I genuinely confident (60%+) or just guessing?
 
 {'─' * 55}
@@ -527,7 +527,7 @@ EDGE: your probability minus market price as decimal
 REASONING: one paragraph explaining your probability estimate and why the crowd may be wrong
 KEY_RISKS: one sentence on the biggest risk to this trade
 
-Only recommend YES or NO if you have at least 5% edge AND 60%+ confidence AND a specific reason the crowd is wrong."""
+Only recommend YES or NO if you have at least {self.config.MIN_EDGE_TO_TRADE:.0%} edge AND 60%+ confidence AND a specific reason the crowd is wrong."""
 
         return prompt
 

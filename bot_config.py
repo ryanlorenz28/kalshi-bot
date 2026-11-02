@@ -37,7 +37,7 @@ class BotConfig:
 
     # ─── TRADING RULES ────────────────────────────────────────
     MIN_CONFIDENCE_TO_TRADE = 0.60
-    MIN_EDGE_TO_TRADE       = 0.05       # lowered from 6% to 5% to catch near-threshold opportunities
+    MIN_EDGE_TO_TRADE       = 0.08       # raised from 5% (Nov 2026): fees + 3¢ buffer ate most of a 5% edge
     MAX_OPEN_POSITIONS      = 15         # raised to accommodate loaded existing positions
     MAX_EXPOSURE_PER_SERIES = 30.00      # max $ spent on any single company/topic
     KELLY_FRACTION          = 0.10       # 10% Kelly (was 0.25)
