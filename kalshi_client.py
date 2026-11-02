@@ -1,5 +1,6 @@
 import requests
 import base64
+import time
 import uuid
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric.padding import PSS, MGF1
@@ -350,7 +351,7 @@ class KalshiClient:
         book_price = max(0.01, min(0.99, book_price))
         return book_side, book_price
 
-    def _submit_order_v2(self, ticker: str, book_side: str, count: float, book_price: float):
+    def _submit_order_v2(self, ticker: str, book_side: str, count: float, book_price: float, **overrides):
         path = "/portfolio/events/orders"
         payload = {
             "ticker":                    ticker,
@@ -366,8 +367,120 @@ class KalshiClient:
             "subaccount":                0,
             "exchange_index":            0,
         }
+        payload.update(overrides)
         r = self.session.post(self.BASE_URL + path, headers=self._headers("POST", path), json=payload, timeout=15)
         return r, payload
+
+    # ORDERS — RESTING (maker) BUYS
+    # Orders that sit on the book at/near the bid instead of paying the ask.
+    # Docs: Create Order V2 (good_till_canceled + expiration_time, post_only),
+    # Cancel Order V2 (DELETE /portfolio/events/orders/{id}), Get Order(s).
+    MAKER_TAG = "kbot-"   # client_order_id prefix so the bot can find its own orders
+
+    def maker_quote(self, ticker: str, side: str, improve_min_spread: float = 0.03):
+        """Limit price for a resting buy on `side`: 1¢ above that side's best bid
+        when the spread is wide enough, else equal to the bid. Always below the
+        ask so a post-only order rests. None if there's no bid or ask."""
+        try:
+            path = f"/markets/{ticker}"
+            r = self.session.get(self.BASE_URL + path, headers=self._headers("GET", path), timeout=10)
+            if r.status_code != 200:
+                return None
+            m = r.json().get("market", {})
+        except Exception:
+            return None
+        bid = self._sell_price(m, side)   # best bid for this side
+        if side == "yes":
+            ask = self._price_field(m, "yes_ask_dollars")
+        else:
+            ask = self._price_field(m, "no_ask_dollars")
+            if ask is None:
+                yes_bid = self._price_field(m, "yes_bid_dollars")
+                ask = round(1 - yes_bid, 4) if yes_bid is not None else None
+        if bid is None or ask is None:
+            return None
+        price = bid + 0.01 if ask - bid >= improve_min_spread else bid
+        price = round(price, 2)
+        return price if 0.01 <= price < ask else None
+
+    def place_resting_buy(self, ticker: str, side: str, count: int, limit_price: float, expires_in_min: int):
+        """Post-only, expiring buy at limit_price. Returns the order info dict, or
+        None if Kalshi rejected it (e.g. it would have crossed the spread)."""
+        if ticker.startswith("DEMO-"):
+            print(f"⚠️  Blocked live order on demo ticker {ticker}")
+            return None
+        book_side, book_price = self._to_book_order(side, "buy", limit_price)
+        client_order_id = self.MAKER_TAG + str(uuid.uuid4())
+        try:
+            r, payload = self._submit_order_v2(
+                ticker, book_side, count, book_price,
+                client_order_id=client_order_id,
+                time_in_force="good_till_canceled",
+                expiration_time=int(time.time()) + expires_in_min * 60,
+                post_only=True,
+            )
+            if not r.ok:
+                print(f"Resting order rejected ({r.status_code}): {r.text[:300]}")
+                print(f"Payload was: {payload}")
+                return None
+            o = r.json()
+            filled = float(o.get("fill_count", "0") or "0")
+            remaining = float(o.get("remaining_count", "0") or "0")
+            if filled <= 0 and remaining <= 0:
+                print(f"Resting order for {ticker} was not accepted onto the book")
+                return None
+            return {"order_id": o.get("order_id"), "client_order_id": client_order_id,
+                    "filled": filled, "remaining": remaining}
+        except Exception as e:
+            print(f"Error placing resting order: {e}")
+            return None
+
+    def get_order(self, order_id: str):
+        """One order's current state, or None if the lookup failed."""
+        path = f"/portfolio/orders/{order_id}"
+        try:
+            r = self.session.get(self.BASE_URL + path, headers=self._headers("GET", path), timeout=10)
+            if r.status_code == 200:
+                return r.json().get("order")
+        except Exception:
+            pass
+        return None
+
+    def cancel_order(self, order_id: str, ticker: str) -> bool:
+        """Cancel a resting order. True if it's gone (canceled now, or already
+        filled/canceled per a 404)."""
+        path = f"/portfolio/events/orders/{order_id}"
+        try:
+            r = self.session.delete(self.BASE_URL + path, headers=self._headers("DELETE", path),
+                                    params={"market_ticker": ticker}, timeout=10)
+            if r.status_code in (200, 404):
+                return True
+            print(f"Cancel failed for {order_id} ({r.status_code}): {r.text[:200]}")
+        except Exception as e:
+            print(f"Error canceling order {order_id}: {e}")
+        return False
+
+    def list_resting_orders(self):
+        """All of this account's resting orders, or None if the lookup failed."""
+        path = "/portfolio/orders"
+        orders, cursor = [], None
+        try:
+            for _ in range(10):
+                params = {"status": "resting", "limit": 100}
+                if cursor:
+                    params["cursor"] = cursor
+                r = self.session.get(self.BASE_URL + path, headers=self._headers("GET", path),
+                                     params=params, timeout=15)
+                if r.status_code != 200:
+                    return None
+                body = r.json()
+                orders += body.get("orders", [])
+                cursor = body.get("cursor")
+                if not cursor:
+                    return orders
+        except Exception:
+            pass
+        return None
 
     # ORDERS — BUY
     def place_order(self, ticker, side, amount_usd, price, dry_run=None):

@@ -41,6 +41,8 @@ def start(state, client, config):
                     "open_positions":     _state_ref.get("open_positions", {}),
                     "paper_trading":      _config_ref.PAPER_TRADING,
                     "predictions":        prediction_log.summary(),
+                    "waiting_buy_orders": {t: {k: o.get(k) for k in ("outcome", "price", "count", "filled", "expires_ts")}
+                                           for t, o in _state_ref.get("resting_orders", {}).items()},
                 }
                 body = json.dumps(payload).encode()
                 self.send_response(200)

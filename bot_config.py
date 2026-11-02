@@ -65,6 +65,14 @@ class BotConfig:
     CACHE_NO_EDGE_BELOW   = 0.02  # last answer was SKIP with under 2% edge, and resolves >7 days out:
     CACHE_TTL_NO_EDGE_MIN = 1440  #   reuse it for 24 hours (price moves / FRED releases still re-ask)
 
+    # ─── RESTING (MAKER) BUY ORDERS — trial, off by default ────
+    # Buy at/near the bid with a post-only order that waits on the book, instead of
+    # paying the ask + 3¢. Sells (stop-loss / take-profit) always stay immediate.
+    MAKER_ORDERS             = False
+    MAKER_EXPIRY_MIN         = 120    # unfilled orders expire after 2 hours
+    MAKER_MAX_RESTING        = 1      # at most this many waiting orders at once
+    MAKER_IMPROVE_MIN_SPREAD = 0.03   # bid +1¢ when the spread is at least 3¢, else join the bid
+
     # ─── LOGGING ──────────────────────────────────────────────
     LOG_TO_FILE    = True
     LOG_FILE       = "bot_log.txt"
@@ -83,12 +91,13 @@ class BotConfig:
             return False
         return True
 
-    def bet_size(self, win_prob: float, price: float, available_balance: float) -> float:
+    def bet_size(self, win_prob: float, price: float, available_balance: float, fill_buffer: float = None) -> float:
         """Fractional Kelly on the real edge: win_prob is the AI's probability
         for the side being bought, price is that side's market price.
         Returns 0.0 (skip the trade) when there's no edge or the bet would be
         under MIN_BET_SIZE."""
-        cost = min(0.99, price + self.FILL_BUFFER)
+        buffer = self.FILL_BUFFER if fill_buffer is None else fill_buffer   # 0 for resting orders (pay the limit price)
+        cost = min(0.99, price + buffer)
         cost += self.KALSHI_FEE_RATE * cost * (1 - cost)   # Kalshi's fee is paid per contract on top
         kelly = (win_prob - cost) / (1 - cost)
         if kelly <= 0:

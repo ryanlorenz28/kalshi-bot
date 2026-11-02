@@ -15,6 +15,7 @@ import json
 import os
 import status_server
 import prediction_log
+import maker_orders
 from datetime import datetime, date
 from colorama import init, Fore, Style
 from bot_config import BotConfig
@@ -110,7 +111,8 @@ def load_daily_loss(state, logger):
 
 
 def real_money_remaining(state, config) -> float:
-    return max(0.0, config.REAL_MONEY_LIMIT - state["real_money_spent"])
+    # waiting (maker) buy orders reserve their cost until they fill or expire
+    return max(0.0, config.REAL_MONEY_LIMIT - state["real_money_spent"] - maker_orders.reserved_usd(state))
 
 
 def kalshi_position_record(client, pos, reasoning):
@@ -339,6 +341,10 @@ def run_cycle(client, analyzer, logger, config, state):
     logger.info("=" * 55)
     logger.info("🔄 Starting new trading cycle...")
 
+    # Pick up fills on waiting (maker) buy orders before syncing positions
+    if not config.PAPER_TRADING:
+        maker_orders.manage(client, state, logger, config)
+
     # Match tracked positions and money at risk to what Kalshi says we hold
     if not config.PAPER_TRADING:
         sync_positions(client, logger, state)
@@ -353,6 +359,8 @@ def run_cycle(client, analyzer, logger, config, state):
     # Daily loss limit stops new trades only — sync, stop-losses and
     # take-profits above keep running so open positions are still managed.
     if not check_daily_loss_limit(state, config, logger):
+        if not config.PAPER_TRADING:
+            maker_orders.cancel_all(client, state, logger, "daily loss limit")
         return
 
     if not config.PAPER_TRADING:
@@ -377,7 +385,8 @@ def run_cycle(client, analyzer, logger, config, state):
     logger.info(f"✅ Found {len(markets)} markets to analyze")
 
     for i, market in enumerate(markets):
-        if len(state["open_positions"]) >= config.MAX_OPEN_POSITIONS:
+        waiting_only = maker_orders.waiting_tickers(state) - set(state["open_positions"])
+        if len(state["open_positions"]) + len(waiting_only) >= config.MAX_OPEN_POSITIONS:
             logger.info(f"⛔ Position limit ({config.MAX_OPEN_POSITIONS}) reached.")
             break
 
@@ -397,7 +406,7 @@ def run_cycle(client, analyzer, logger, config, state):
         series_spent = sum(
             t.get("cost_usd", 0) for t in state["open_positions"].values()
             if t.get("series", "") == series and t.get("mode") == "LIVE"
-        )
+        ) + maker_orders.reserved_usd(state, series)
         if series_spent >= series_cap:
             logger.info(f"  ⛔ Series cap (${series_cap:.0f}) reached for {series}")
             continue
@@ -409,6 +418,15 @@ def run_cycle(client, analyzer, logger, config, state):
         analysis = analyzer.analyze_market(market)
         if "my_probability" in analysis and not analysis.get("cached"):   # fresh Claude answers only
             prediction_log.record("analysis", market, analysis)
+
+        waiting = maker_orders.resting(state).get(market["id"])
+        if waiting:
+            if not analysis.get("should_trade") or analysis.get("outcome_to_buy") != waiting["outcome"]:
+                maker_orders.cancel(client, state, logger, market["id"], "Claude no longer wants this trade")
+            else:
+                logger.info(f"  📌 Waiting buy still on the book @ {waiting['price']:.2f}")
+            time.sleep(config.DELAY_BETWEEN_ANALYSES)
+            continue
 
         if not analysis.get("should_trade"):
             cached_tag = " (cached)" if analysis.get("cached") else ""
@@ -436,9 +454,24 @@ def run_cycle(client, analyzer, logger, config, state):
             side_probability = 1 - analysis["my_probability"]
             side_edge        = side_probability - entry_price
 
+        # Resting (maker) buy: size on the limit price at/near the bid, no fill buffer
+        use_maker, size_price, size_buffer = False, entry_price, None
+        if config.MAKER_ORDERS and not config.PAPER_TRADING:
+            if len(maker_orders.resting(state)) >= config.MAKER_MAX_RESTING:
+                logger.info(f"  ⏭️  Skip: already {len(maker_orders.resting(state))} waiting buy order(s) "
+                            f"(max {config.MAKER_MAX_RESTING})")
+                time.sleep(config.DELAY_BETWEEN_ANALYSES)
+                continue
+            limit_price = client.maker_quote(market["id"], side, config.MAKER_IMPROVE_MIN_SPREAD)
+            if limit_price is None:
+                logger.info(f"  ⏭️  Skip: no usable bid/ask on {market['id']} for a waiting buy")
+                time.sleep(config.DELAY_BETWEEN_ANALYSES)
+                continue
+            use_maker, size_price, size_buffer = True, limit_price, 0.0
+
         if not config.PAPER_TRADING:
             # Hard total exposure limit
-            if state["real_money_spent"] >= config.TOTAL_EXPOSURE_LIMIT:
+            if state["real_money_spent"] + maker_orders.reserved_usd(state) >= config.TOTAL_EXPOSURE_LIMIT:
                 logger.info(Fore.RED + f"  🛑 Total exposure limit (${config.TOTAL_EXPOSURE_LIMIT:.0f}) reached — no new trades" + Style.RESET_ALL)
                 break
             remaining = real_money_remaining(state, config)
@@ -454,7 +487,7 @@ def run_cycle(client, analyzer, logger, config, state):
                 # Use cached live balance for bet sizing
                 live_balance = cached_live_balance or remaining
                 bet_amount = min(
-                    config.bet_size(side_probability, entry_price, live_balance),
+                    config.bet_size(side_probability, size_price, live_balance, size_buffer),
                     remaining,
                     live_balance * 0.25,   # never bet more than 25% of available cash
                 )
@@ -466,6 +499,11 @@ def run_cycle(client, analyzer, logger, config, state):
         if bet_amount < config.MIN_BET_SIZE:
             logger.info(f"  ⏭️  Skip: bet size ${bet_amount:.2f} under ${config.MIN_BET_SIZE:.0f} minimum "
                         f"({side_probability:.0%} vs {entry_price:.2f} {outcome} price)")
+            time.sleep(config.DELAY_BETWEEN_ANALYSES)
+            continue
+
+        if use_maker and use_real:
+            maker_orders.place(client, state, logger, config, market, analysis, outcome, size_price, bet_amount)
             time.sleep(config.DELAY_BETWEEN_ANALYSES)
             continue
 
@@ -574,6 +612,10 @@ def main():
         "last_reset_date":  date.today(),
     }
     load_daily_loss(state, logger)
+    if not config.PAPER_TRADING:
+        maker_orders.load(state, logger)
+        maker_orders.reconcile_at_startup(client, state, logger, config)
+        logger.info(f"📌 Waiting (maker) buy orders: {'ON' if config.MAKER_ORDERS else 'off'}")
 
     # ── Load existing Kalshi positions into state on startup ───
     # This prevents the series cap from resetting on every redeploy
@@ -621,7 +663,7 @@ def main():
         logger.warning("FRED_API_KEY not set — jobs/Fed/GDP/CPI live data will show as unavailable")
 
     mode_str = "LIVE" if not config.PAPER_TRADING else "PAPER"
-    logger.info(f"🚀 Bot started in {mode_str} mode [v2.17 — reuse no-edge answers 24h]")
+    logger.info(f"🚀 Bot started in {mode_str} mode [v2.18 — waiting buy orders at the bid (off by default)]")
     logger.info(f"📡 Scanning {config.MARKETS_TO_SCAN} markets every {config.CYCLE_INTERVAL_MINUTES} min")
     if not config.PAPER_TRADING:
         logger.info(f"💵 Real money cap: ${config.REAL_MONEY_LIMIT:.0f}")
