@@ -28,7 +28,7 @@ External data: FRED (`DFEDTARU`, `UNRATE`, `PAYEMS`, plus last released real GDP
 
 Hosting: Railway, auto-deploys from the `main` branch. In-process state resets on every redeploy.
 
-Series list: verified tickers only, in priority order (jobs/Fed/GDP first, CPI last). See `bot_config.py` for the live list. `KXMVE` combo/parlay tickers are filtered out on both the targeted and fallback fetch paths. Tesla (`KXTSLA`) and Nvidia (`KXNVDA`) are removed on purpose.
+Series list: verified tickers only, in `macro_tickers` inside `kalshi_client.get_markets` (the order only breaks ties since v2.20; the soonest-settling markets are analyzed first). `KXMVE` combo/parlay tickers are filtered out on both the targeted and fallback fetch paths. Tesla (`KXTSLA`) and Nvidia (`KXNVDA`) are removed on purpose.
 
 ---
 
