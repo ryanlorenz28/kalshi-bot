@@ -108,12 +108,15 @@ class KalshiClient:
         return any(ticker.startswith(p) for p in self.COMBO_TICKER_PREFIXES)
 
     # MARKETS
-    def get_markets(self, limit=10, skip_tickers=None, skip_series=None):
+    def get_markets(self, limit=10, skip_tickers=None, skip_series=None, include_tickers=None):
         """Up to `limit` tradeable markets, soonest-settling first.
-        skip_tickers: markets not worth a slot (already held / waiting order).
-        skip_series:  series already at their exposure cap."""
+        skip_tickers:    markets not worth a slot (already held / dead).
+        skip_series:     series already at their exposure cap.
+        include_tickers: markets that must be analyzed first (waiting buy orders,
+                         so a stale one is canceled when Claude changes its mind)."""
         markets = []
-        seen = set(skip_tickers or ())
+        include = set(include_tickers or ())
+        seen = set(skip_tickers or ()) - include
         skip_series = set(skip_series or ())
         event_count = {}
         candidates = []   # (days_to_resolve, series priority, event, market)
@@ -146,7 +149,7 @@ class KalshiClient:
         # untradeable ones first), then analyze the soonest-settling markets so
         # predictions settle sooner. Series order only breaks ties.
         for priority, series in enumerate(macro_tickers):
-            if series in skip_series:
+            if series in skip_series and not any(t.startswith(series + "-") for t in include):
                 continue
             path = "/markets"
             try:
@@ -174,10 +177,16 @@ class KalshiClient:
             except Exception as e:
                 print(f"⚠️  Market fetch for {series} failed ({e}) — skipped this cycle")
 
-        candidates.sort(key=lambda c: (c[0], c[1]))
+        candidates.sort(key=lambda c: (c[3]["id"] not in include, c[0], c[1]))
         for _, _, event, norm in candidates:
             if len(markets) >= limit:
                 break
+            if norm["id"] in include:
+                markets.append(norm)
+                event_count[event] = event_count.get(event, 0) + 1
+                continue
+            if norm["id"].split("-")[0] in skip_series:
+                continue
             if event_count.get(event, 0) >= 3:
                 continue
             markets.append(norm)

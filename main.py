@@ -422,9 +422,11 @@ def run_cycle(client, analyzer, logger, config, state):
     logger.info("📡 Scanning Kalshi for active markets...")
     markets = client.get_markets(
         limit=config.MARKETS_TO_SCAN,
-        skip_tickers=set(state["open_positions"]) | maker_orders.waiting_tickers(state)
+        skip_tickers=set(state["open_positions"])
                      | state.get("dead_positions", set()),   # held to expiry: don't buy more
         skip_series=capped_series(state, config),
+        # waiting buys get re-checked first so a stale one is canceled
+        include_tickers=maker_orders.waiting_tickers(state) - set(state["open_positions"]),
     )
 
     if not markets:
@@ -702,7 +704,7 @@ def main():
         logger.warning("FRED_API_KEY not set — jobs/Fed/GDP/CPI live data will show as unavailable")
 
     mode_str = "LIVE" if not config.PAPER_TRADING else "PAPER"
-    logger.info(f"🚀 Bot started in {mode_str} mode [v2.21 — exits value at mid, hold on thin books]")
+    logger.info(f"🚀 Bot started in {mode_str} mode [v2.22 — waiting buys re-checked each cycle]")
     logger.info(f"📡 Scanning {config.MARKETS_TO_SCAN} markets every {config.CYCLE_INTERVAL_MINUTES} min")
     if not config.PAPER_TRADING:
         logger.info(f"💵 Real money cap: ${config.REAL_MONEY_LIMIT:.0f}")
