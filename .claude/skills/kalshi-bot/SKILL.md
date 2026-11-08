@@ -108,7 +108,7 @@ Check this list before working in any of these areas.
 
 **Market selection**
 - Guessed tickers (`KXAAPL`, `KXCLIM`, `KXVIX`) silently return nothing and waste the fetch budget.
-- CPI is last in the series order because its cap fills fast and was crowding out all analysis slots.
+- Market selection (v2.20+): `get_markets` fetches up to 100 markets per series (Kalshi lists many untradeable ones first; 10 per series hid about 60% of tradeable markets, including Fed decisions, GDP and near-term CPI), then analyzes the **soonest-settling** 20 so the prediction log fills faster. Series order only breaks ties. Held, waiting-order and dead-position markets, and series at their cap, are passed in as skips so they don't waste slots (before v2.20, CPI was put last because its cap crowded out slots). A failed series fetch (e.g. 429) is now logged instead of silently dropped. Dead positions are skipped so the bot never buys more of a market it's holding to expiry; their cost still isn't counted toward the series cap (known gap).
 - `KXMVE` combo bundles must stay filtered on both fetch paths.
 
 **Data**

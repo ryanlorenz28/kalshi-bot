@@ -108,10 +108,16 @@ class KalshiClient:
         return any(ticker.startswith(p) for p in self.COMBO_TICKER_PREFIXES)
 
     # MARKETS
-    def get_markets(self, limit=10):
+    def get_markets(self, limit=10, skip_tickers=None, skip_series=None):
+        """Up to `limit` tradeable markets, soonest-settling first.
+        skip_tickers: markets not worth a slot (already held / waiting order).
+        skip_series:  series already at their exposure cap."""
         markets = []
-        seen = set()
+        seen = set(skip_tickers or ())
+        skip_series = set(skip_series or ())
         event_count = {}
+        candidates = []   # (days_to_resolve, series priority, event, market)
+        skipped = 0
 
         macro_tickers = [
             # Jobs / employment first — high edge potential, less competition
@@ -136,34 +142,46 @@ class KalshiClient:
             # CPI last — already at series cap, fetch last so it doesn't crowd out others
             "KXCPI", "KXCPIYOY",
         ]
-        for series in macro_tickers:
-            if len(markets) >= limit:
-                break
+        # Look at every series (up to 100 markets each: Kalshi lists many
+        # untradeable ones first), then analyze the soonest-settling markets so
+        # predictions settle sooner. Series order only breaks ties.
+        for priority, series in enumerate(macro_tickers):
+            if series in skip_series:
+                continue
             path = "/markets"
             try:
                 r = self.session.get(
                     self.BASE_URL + path,
                     headers=self._headers("GET", path),
-                    params={"status": "open", "series_ticker": series, "limit": 10},
+                    params={"status": "open", "series_ticker": series, "limit": 100},
                     timeout=10,
                 )
-                if r.status_code == 200:
-                    for m in r.json().get("markets", []):
-                        ticker = m.get("ticker", "")
-                        event = m.get("event_ticker", series)
-                        if ticker in seen:
-                            continue
-                        if self._is_combo_ticker(ticker):
-                            continue
-                        if event_count.get(event, 0) >= 3:
-                            continue
-                        norm = self._normalize(m)
-                        if norm and self._is_tradeable(norm):
-                            markets.append(norm)
-                            seen.add(ticker)
-                            event_count[event] = event_count.get(event, 0) + 1
-            except Exception:
-                pass
+                if r.status_code != 200:
+                    print(f"⚠️  Market fetch for {series} failed ({r.status_code}) — skipped this cycle")
+                    continue
+                for m in r.json().get("markets", []):
+                    ticker = m.get("ticker", "")
+                    if ticker in seen:
+                        skipped += 1
+                        continue
+                    if self._is_combo_ticker(ticker):
+                        continue
+                    norm = self._normalize(m)
+                    if norm and self._is_tradeable(norm):
+                        seen.add(ticker)
+                        candidates.append((norm.get("days_to_resolve", 999), priority,
+                                           m.get("event_ticker", series), norm))
+            except Exception as e:
+                print(f"⚠️  Market fetch for {series} failed ({e}) — skipped this cycle")
+
+        candidates.sort(key=lambda c: (c[0], c[1]))
+        for _, _, event, norm in candidates:
+            if len(markets) >= limit:
+                break
+            if event_count.get(event, 0) >= 3:
+                continue
+            markets.append(norm)
+            event_count[event] = event_count.get(event, 0) + 1
 
         # Fill remaining from default feed
         if len(markets) < limit:
@@ -179,7 +197,7 @@ class KalshiClient:
                     for m in r.json().get("markets", []):
                         ticker = m.get("ticker", "")
                         event = m.get("event_ticker", "")
-                        if ticker in seen:
+                        if ticker in seen or ticker.split("-")[0] in skip_series:
                             continue
                         if self._is_combo_ticker(ticker):
                             continue
@@ -195,7 +213,8 @@ class KalshiClient:
             except Exception as e:
                 print("Error fetching general markets: " + str(e))
 
-        print(f"Found {len(markets)} tradeable markets")
+        print(f"Found {len(markets)} tradeable markets (from {len(candidates)} candidates; "
+              f"{skipped} held/waiting and {len(skip_series)} capped series skipped)")
 
         # IMPORTANT: never fall back to demo markets in live mode
         if not markets:

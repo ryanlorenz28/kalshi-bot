@@ -110,6 +110,31 @@ def load_daily_loss(state, logger):
         logger.warning(f"Couldn't read saved daily loss ({e}) — starting today at $0.00")
 
 
+# Higher cap for liquid macro series where Claude finds consistent edge
+SERIES_CAP_OVERRIDES = {
+    "KXPAYROLLS": 50.00,  # Jobs markets — liquid, strong edge history
+    "KXU3":        50.00,  # Unemployment — same data release
+    "KXGDP":       50.00,  # GDP — strong track record (+129%)
+    "KXCPI":       40.00,  # CPI — good but already have positions
+}
+
+
+def series_spent_usd(state, series) -> float:
+    """Live money in a series: open positions plus waiting buy orders."""
+    return sum(
+        t.get("cost_usd", 0) for t in state["open_positions"].values()
+        if t.get("series", "") == series and t.get("mode") == "LIVE"
+    ) + maker_orders.reserved_usd(state, series)
+
+
+def capped_series(state, config) -> set:
+    """Series already at their exposure cap — no point spending scan slots on them."""
+    series = {t.get("series", "") for t in state["open_positions"].values()} | \
+             {o["series"] for o in maker_orders.resting(state).values()}
+    return {s for s in series if s and
+            series_spent_usd(state, s) >= SERIES_CAP_OVERRIDES.get(s, config.MAX_EXPOSURE_PER_SERIES)}
+
+
 def real_money_remaining(state, config) -> float:
     # waiting (maker) buy orders reserve their cost until they fill or expire
     return max(0.0, config.REAL_MONEY_LIMIT - state["real_money_spent"] - maker_orders.reserved_usd(state))
@@ -375,7 +400,12 @@ def run_cycle(client, analyzer, logger, config, state):
     cached_live_balance = client.get_balance() if not config.PAPER_TRADING else None
 
     logger.info("📡 Scanning Kalshi for active markets...")
-    markets = client.get_markets(limit=config.MARKETS_TO_SCAN)
+    markets = client.get_markets(
+        limit=config.MARKETS_TO_SCAN,
+        skip_tickers=set(state["open_positions"]) | maker_orders.waiting_tickers(state)
+                     | state.get("dead_positions", set()),   # held to expiry: don't buy more
+        skip_series=capped_series(state, config),
+    )
 
     if not markets:
         logger.warning("No markets found. Retrying next cycle.")
@@ -395,19 +425,8 @@ def run_cycle(client, analyzer, logger, config, state):
 
         # Use ticker prefix as series key (e.g. "KXGDP" from "KXGDP-26Q2-T2")
         series = market["id"].split("-")[0]
-        # Higher cap for liquid macro series where Claude finds consistent edge
-        SERIES_CAP_OVERRIDES = {
-            "KXPAYROLLS": 50.00,  # Jobs markets — liquid, strong edge history
-            "KXU3":        50.00,  # Unemployment — same data release
-            "KXGDP":       50.00,  # GDP — strong track record (+129%)
-            "KXCPI":       40.00,  # CPI — good but already have positions
-        }
         series_cap = SERIES_CAP_OVERRIDES.get(series, config.MAX_EXPOSURE_PER_SERIES)
-        series_spent = sum(
-            t.get("cost_usd", 0) for t in state["open_positions"].values()
-            if t.get("series", "") == series and t.get("mode") == "LIVE"
-        ) + maker_orders.reserved_usd(state, series)
-        if series_spent >= series_cap:
+        if series_spent_usd(state, series) >= series_cap:
             logger.info(f"  ⛔ Series cap (${series_cap:.0f}) reached for {series}")
             continue
 
@@ -663,7 +682,7 @@ def main():
         logger.warning("FRED_API_KEY not set — jobs/Fed/GDP/CPI live data will show as unavailable")
 
     mode_str = "LIVE" if not config.PAPER_TRADING else "PAPER"
-    logger.info(f"🚀 Bot started in {mode_str} mode [v2.19 — waiting buy order trial ON (max 1)]")
+    logger.info(f"🚀 Bot started in {mode_str} mode [v2.20 — scan soonest-settling markets, 100 per series]")
     logger.info(f"📡 Scanning {config.MARKETS_TO_SCAN} markets every {config.CYCLE_INTERVAL_MINUTES} min")
     if not config.PAPER_TRADING:
         logger.info(f"💵 Real money cap: ${config.REAL_MONEY_LIMIT:.0f}")
