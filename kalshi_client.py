@@ -308,6 +308,17 @@ class KalshiClient:
         yes_ask = KalshiClient._price_field(raw, "yes_ask_dollars")
         return round(1 - yes_ask, 4) if yes_ask is not None else None
 
+    @staticmethod
+    def _side_ask(raw, side):
+        """Best price to BUY a side right now (that side's ask), or None. NO ask = 1 - YES bid."""
+        if side == "yes":
+            return KalshiClient._price_field(raw, "yes_ask_dollars")
+        no_ask = KalshiClient._price_field(raw, "no_ask_dollars")
+        if no_ask is not None:
+            return no_ask
+        yes_bid = KalshiClient._price_field(raw, "yes_bid_dollars")
+        return round(1 - yes_bid, 4) if yes_bid is not None else None
+
     def _held_contracts(self, ticker):
         """Signed contracts held on Kalshi (+ = YES, - = NO), 0 if none,
         None if the positions lookup failed."""
@@ -409,13 +420,7 @@ class KalshiClient:
         except Exception:
             return None
         bid = self._sell_price(m, side)   # best bid for this side
-        if side == "yes":
-            ask = self._price_field(m, "yes_ask_dollars")
-        else:
-            ask = self._price_field(m, "no_ask_dollars")
-            if ask is None:
-                yes_bid = self._price_field(m, "yes_bid_dollars")
-                ask = round(1 - yes_bid, 4) if yes_bid is not None else None
+        ask = self._side_ask(m, side)
         if bid is None or ask is None:
             return None
         price = bid + 0.01 if ask - bid >= improve_min_spread else bid

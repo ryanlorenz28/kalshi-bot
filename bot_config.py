@@ -42,6 +42,7 @@ class BotConfig:
     MAX_EXPOSURE_PER_SERIES = 30.00      # max $ spent on any single company/topic
     KELLY_FRACTION          = 0.10       # 10% Kelly (was 0.25)
     FILL_BUFFER             = 0.03       # place_order pays the ask + 3¢; size on that price
+    MAX_SELL_SPREAD         = 0.10       # exits (stop-loss / take-profit) hold if bid-ask spread is wider
     KALSHI_FEE_RATE         = 0.07       # taker fee per contract = rate × price × (1 − price)
 
     # ─── POSITION MANAGER ─────────────────────────────────────

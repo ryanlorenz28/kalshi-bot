@@ -273,15 +273,27 @@ def check_exit_positions(client, logger, config, state):
             m = r.json().get("market", {})
 
             side = pos.get("outcome", "Yes").lower()
-            if side == "yes":
-                current_price = float(m.get("yes_bid_dollars") or m.get("last_price_dollars") or 0)
+            # Value the position at the midpoint of bid and ask. The bid alone can
+            # collapse overnight when market makers pull their quotes (Nov 4: jobs
+            # positions bid at 15c while fair value was ~70c).
+            bid = client._sell_price(m, side)
+            ask = client._side_ask(m, side)
+            if bid is not None and ask is not None:
+                current_price = round((bid + ask) / 2, 4)
+                spread = ask - bid
             else:
-                current_price = float(m.get("no_bid_dollars") or 0)
-                if current_price == 0:
-                    yes_price = float(m.get("yes_ask_dollars") or 0.5)
-                    current_price = 1 - yes_price
-            if current_price > 1:
-                current_price /= 100
+                spread = None
+                last = client._price_field(m, "last_price_dollars")
+                if bid is not None:
+                    current_price = bid
+                elif last is not None:
+                    current_price = last if side == "yes" else round(1 - last, 4)
+                else:
+                    continue
+            max_spread = getattr(config, "MAX_SELL_SPREAD", 0.10)
+            book_ok = spread is not None and spread <= max_spread
+            book_desc = (f"bid {bid:.2f} / ask {ask:.2f}" if bid is not None and ask is not None
+                         else f"bid {bid if bid is not None else '—'} / ask {ask if ask is not None else '—'}")
 
             entry_price = float(pos.get("entry_price", 0.5))
             contracts   = max(1, float(pos.get("contracts", 1)))
@@ -297,7 +309,15 @@ def check_exit_positions(client, logger, config, state):
 
             # Take profit: up 40%+ OR trading above 85¢ while in profit
             take_profit_min_price = getattr(config, "TAKE_PROFIT_MIN_PRICE", 0.85)
-            if gain_pct >= config.TAKE_PROFIT_PCT or (current_price >= take_profit_min_price and gain_pct > 0):
+            exit_triggered = (gain_pct >= config.TAKE_PROFIT_PCT
+                              or (current_price >= take_profit_min_price and gain_pct > 0)
+                              or (gain_pct <= -config.STOP_LOSS_PCT and days_left < 10)
+                              or (gain_pct <= -0.70 and current_price >= 0.10))
+            if exit_triggered and not book_ok:
+                # Selling into a thin book sells far below fair value; hold and re-check next cycle
+                logger.info(f"  ⏸️  Exit signal on {market_id} ({gain_pct:+.0%}, valued at {current_price:.2f}) "
+                            f"but book too thin ({book_desc}) — holding")
+            elif gain_pct >= config.TAKE_PROFIT_PCT or (current_price >= take_profit_min_price and gain_pct > 0):
                 logger.info(
                     Fore.GREEN +
                     f"  💰 TAKE PROFIT: {market_id} up {gain_pct:.0%} "
@@ -682,7 +702,7 @@ def main():
         logger.warning("FRED_API_KEY not set — jobs/Fed/GDP/CPI live data will show as unavailable")
 
     mode_str = "LIVE" if not config.PAPER_TRADING else "PAPER"
-    logger.info(f"🚀 Bot started in {mode_str} mode [v2.20 — scan soonest-settling markets, 100 per series]")
+    logger.info(f"🚀 Bot started in {mode_str} mode [v2.21 — exits value at mid, hold on thin books]")
     logger.info(f"📡 Scanning {config.MARKETS_TO_SCAN} markets every {config.CYCLE_INTERVAL_MINUTES} min")
     if not config.PAPER_TRADING:
         logger.info(f"💵 Real money cap: ${config.REAL_MONEY_LIMIT:.0f}")

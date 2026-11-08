@@ -100,6 +100,7 @@ Check this list before working in any of these areas.
 **Risk logic**
 - `daily_loss` counts **realized losses only** (stop-loss exits), never new trade spend. It used to trip the daily limit on busy days.
 - Hard -70% stop loss fires regardless of days to expiry.
+- Exits value positions at the **midpoint** of bid and ask, and never sell when the spread is over `MAX_SELL_SPREAD` (10¢) or the bid or ask is missing (v2.21). They log `book too thin ... holding` and re-check next cycle. Why: on Nov 4 overnight, market makers pulled their bids on the November jobs markets. The bot valued its YES positions at a lone 15¢ bid, hit the −70% hard stop and sold 58 + 22 contracts at 15¢ while fair value was ~60–75¢ (bids back at 72¢ days later), costing about $40. This only started costing money after v2.7 made sells actually fill. Kalshi's public `GET /markets/trades?ticker=...` shows the fills and is the quickest way to audit a suspicious exit.
 - Dead positions (down 70%+ and price < $0.10) are removed from active tracking and never sold. Repeated sells on illiquid near-zero contracts just waste cycles. `KXFED-27APR-T4.00` is a known dead position; leave it.
 - The per-series cap exists because one Tesla series once absorbed $110+ and lost it all. Never weaken it without approval.
 - `fill_count=0` tickers are auto-blacklisted to `auto_blacklist.txt`.
