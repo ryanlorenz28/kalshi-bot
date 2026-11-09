@@ -16,6 +16,7 @@ import os
 import status_server
 import prediction_log
 import maker_orders
+import release_guard
 from datetime import datetime, date
 from colorama import init, Fore, Style
 from bot_config import BotConfig
@@ -416,6 +417,15 @@ def run_cycle(client, analyzer, logger, config, state):
             f"Daily loss: ${state['daily_loss']:.2f} / ${config.DAILY_LOSS_LIMIT:.2f}"
         )
 
+    # Data release guard: no new buys around jobs / CPI / Fed / GDP releases
+    release_blocked = release_guard.blocked_series(client, config)
+    for reason in sorted(set(release_blocked.values())):
+        logger.info(f"📅 {reason}")
+    if not config.PAPER_TRADING:
+        for ticker, o in list(maker_orders.resting(state).items()):
+            if o["series"] in release_blocked:
+                maker_orders.cancel(client, state, logger, ticker, "data release window")
+
     # Cache live balance once per cycle — avoids a live API call per trade
     cached_live_balance = client.get_balance() if not config.PAPER_TRADING else None
 
@@ -472,6 +482,11 @@ def run_cycle(client, analyzer, logger, config, state):
         if not analysis.get("should_trade"):
             cached_tag = " (cached)" if analysis.get("cached") else ""
             logger.info(f"  ⏭️  Skip: {analysis.get('reason', 'low confidence')}{cached_tag}")
+            time.sleep(config.DELAY_BETWEEN_ANALYSES)
+            continue
+
+        if series in release_blocked:
+            logger.info(f"  ⏭️  Skip: {release_blocked[series]}")
             time.sleep(config.DELAY_BETWEEN_ANALYSES)
             continue
 
@@ -704,7 +719,7 @@ def main():
         logger.warning("FRED_API_KEY not set — jobs/Fed/GDP/CPI live data will show as unavailable")
 
     mode_str = "LIVE" if not config.PAPER_TRADING else "PAPER"
-    logger.info(f"🚀 Bot started in {mode_str} mode [v2.22 — waiting buys re-checked each cycle]")
+    logger.info(f"🚀 Bot started in {mode_str} mode [v2.23 — no buys around data releases]")
     logger.info(f"📡 Scanning {config.MARKETS_TO_SCAN} markets every {config.CYCLE_INTERVAL_MINUTES} min")
     if not config.PAPER_TRADING:
         logger.info(f"💵 Real money cap: ${config.REAL_MONEY_LIMIT:.0f}")

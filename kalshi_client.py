@@ -493,6 +493,26 @@ class KalshiClient:
             print(f"Error canceling order {order_id}: {e}")
         return False
 
+    def close_times_between(self, series: str, start_ts: int, end_ts: int):
+        """Close times (ISO strings) of any markets in a series closing between two
+        Unix times, any status. Kalshi's economic-data markets close one minute
+        before the data is released, so this doubles as the release schedule.
+        None if the lookup failed (vs [] for none)."""
+        path = "/markets"
+        try:
+            r = self.session.get(
+                self.BASE_URL + path,
+                headers=self._headers("GET", path),
+                params={"series_ticker": series, "min_close_ts": int(start_ts),
+                        "max_close_ts": int(end_ts), "limit": 100},
+                timeout=10,
+            )
+            if r.status_code != 200:
+                return None
+            return sorted({m.get("close_time", "") for m in r.json().get("markets", []) if m.get("close_time")})
+        except Exception:
+            return None
+
     def list_resting_orders(self):
         """All of this account's resting orders, or None if the lookup failed."""
         path = "/portfolio/orders"

@@ -74,6 +74,14 @@ class BotConfig:
     MAKER_MAX_RESTING        = 1      # at most this many waiting orders at once
     MAKER_IMPROVE_MIN_SPREAD = 0.03   # bid +1¢ when the spread is at least 3¢, else join the bid
 
+    # ─── DATA RELEASE GUARD ────────────────────────────────────
+    # No new buys in jobs / CPI / Fed / GDP markets from RELEASE_GUARD_BEFORE_H hours
+    # before a scheduled release to RELEASE_GUARD_AFTER_H hours after (traders with
+    # the new numbers pick off stale bids; Nov 6 jobs report). Exits keep running.
+    RELEASE_GUARD            = True
+    RELEASE_GUARD_BEFORE_H   = 12
+    RELEASE_GUARD_AFTER_H    = 6
+
     # ─── LOGGING ──────────────────────────────────────────────
     LOG_TO_FILE    = True
     LOG_FILE       = "bot_log.txt"
