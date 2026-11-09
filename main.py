@@ -94,6 +94,58 @@ def save_daily_loss(state):
         print(f"⚠️  Couldn't save daily loss: {e}")
 
 
+# Exit memory on the volume: positions held to expiry ("dead") and recent
+# stop-loss sales, so a redeploy doesn't (a) re-run the hard stop on positions
+# already being held to expiry or (b) forget a market was just stopped out of.
+EXIT_MEMORY_FILE = "exit_memory.json"
+
+
+def _exit_memory_path():
+    data_dir = os.environ.get("DATA_DIR", "")
+    return os.path.join(data_dir, EXIT_MEMORY_FILE) if data_dir and os.path.isdir(data_dir) else None
+
+
+def save_exit_memory(state):
+    path = _exit_memory_path()
+    if not path:
+        return
+    try:
+        tmp = path + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump({"dead_positions": sorted(state.get("dead_positions", set())),
+                       "stopped_out": state.get("stopped_out", {})}, f)
+        os.replace(tmp, path)
+    except Exception as e:
+        print(f"⚠️  Couldn't save exit memory: {e}")
+
+
+def load_exit_memory(state, logger):
+    path = _exit_memory_path()
+    if not path:
+        logger.warning("Dead positions and stop-loss cooldowns reset on redeploy — DATA_DIR not set")
+        return
+    try:
+        with open(path) as f:
+            saved = json.load(f)
+        state["dead_positions"] = set(saved.get("dead_positions", []))
+        state["stopped_out"] = {t: float(ts) for t, ts in saved.get("stopped_out", {}).items()}
+        logger.info(f"🧠 Exit memory: {len(state['dead_positions'])} held to expiry, "
+                    f"{len(state['stopped_out'])} recent stop-loss sale(s)")
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        logger.warning(f"Couldn't read exit memory ({e}) — starting without it")
+
+
+def stop_loss_cooldown_tickers(state, config) -> set:
+    """Markets sold at a stop-loss within the cooldown — don't buy them back yet."""
+    cutoff = time.time() - getattr(config, "STOP_LOSS_COOLDOWN_DAYS", 3) * 86400
+    stopped = state.setdefault("stopped_out", {})
+    for t in [t for t, ts in stopped.items() if ts < cutoff]:
+        stopped.pop(t)
+    return set(stopped)
+
+
 def load_daily_loss(state, logger):
     path = _daily_loss_path()
     if not path:
@@ -345,6 +397,7 @@ def check_exit_positions(client, logger, config, state):
                     loss = (entry_price - current_price) * contracts
                     state["daily_loss"] += max(0, loss)
                     state["real_money_spent"] = max(0, state["real_money_spent"] - pos.get("cost_usd", 0))
+                    state.setdefault("stopped_out", {})[market_id] = time.time()
                     to_remove.append(market_id)
 
             # Hard stop: down 70%+ regardless of time — position has gone very wrong
@@ -371,6 +424,7 @@ def check_exit_positions(client, logger, config, state):
                         loss = (entry_price - current_price) * contracts
                         state["daily_loss"] += max(0, loss)
                         state["real_money_spent"] = max(0, state["real_money_spent"] - pos.get("cost_usd", 0))
+                        state.setdefault("stopped_out", {})[market_id] = time.time()
                         to_remove.append(market_id)
 
         except Exception as e:
@@ -398,6 +452,7 @@ def run_cycle(client, analyzer, logger, config, state):
     # Check if any existing positions should be exited
     check_exit_positions(client, logger, config, state)
     save_daily_loss(state)
+    save_exit_memory(state)
 
     # Score settled predictions (every 6h; read-only, never blocks trading)
     prediction_log.score(client, logger)
@@ -433,7 +488,8 @@ def run_cycle(client, analyzer, logger, config, state):
     markets = client.get_markets(
         limit=config.MARKETS_TO_SCAN,
         skip_tickers=set(state["open_positions"])
-                     | state.get("dead_positions", set()),   # held to expiry: don't buy more
+                     | state.get("dead_positions", set())   # held to expiry: don't buy more
+                     | stop_loss_cooldown_tickers(state, config),   # just stopped out: don't buy back
         skip_series=capped_series(state, config),
         # waiting buys get re-checked first so a stale one is canceled
         include_tickers=maker_orders.waiting_tickers(state) - set(state["open_positions"]),
@@ -668,6 +724,7 @@ def main():
         "last_reset_date":  date.today(),
     }
     load_daily_loss(state, logger)
+    load_exit_memory(state, logger)
     if not config.PAPER_TRADING:
         maker_orders.load(state, logger)
         maker_orders.reconcile_at_startup(client, state, logger, config)
@@ -691,6 +748,11 @@ def main():
             if built:
                 rec, raw_cost = built
                 ticker = rec["market_id"]
+                if ticker in state.get("dead_positions", set()):
+                    # held to expiry: count the money, don't re-run exits on it
+                    state["real_money_spent"] += rec["cost_usd"]
+                    logger.info(f"   • {ticker}: held to expiry (dead) — cost ${rec['cost_usd']:.2f}")
+                    continue
                 state["open_positions"][ticker] = rec
                 state["real_money_spent"] += rec["cost_usd"]
                 logger.info(f"   • {ticker}: {rec['outcome']} x{rec['contracts']:g}  cost ${rec['cost_usd']:.2f}  "
@@ -719,7 +781,7 @@ def main():
         logger.warning("FRED_API_KEY not set — jobs/Fed/GDP/CPI live data will show as unavailable")
 
     mode_str = "LIVE" if not config.PAPER_TRADING else "PAPER"
-    logger.info(f"🚀 Bot started in {mode_str} mode [v2.23 — no buys around data releases]")
+    logger.info(f"🚀 Bot started in {mode_str} mode [v2.24 — remember dead positions, stop-loss cooldown]")
     logger.info(f"📡 Scanning {config.MARKETS_TO_SCAN} markets every {config.CYCLE_INTERVAL_MINUTES} min")
     if not config.PAPER_TRADING:
         logger.info(f"💵 Real money cap: ${config.REAL_MONEY_LIMIT:.0f}")
